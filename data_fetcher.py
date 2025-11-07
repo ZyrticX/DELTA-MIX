@@ -294,12 +294,74 @@ class DataFetcher:
             df = self.download_stock_data(symbol, start_date, end_date, use_cache)
             
             if df is not None and not df.empty:
+                # בדוק אילו עמודות זמינות
+                available_columns = df.columns.tolist()
+                
+                # נרמול שמות עמודות (הסרת רווחים מיותרים, המרה ל-lowercase לבדיקה)
+                normalized_columns = {col.strip(): col for col in available_columns}
+                normalized_lower = {col.strip().lower(): col for col in available_columns}
+                
+                # מיפוי שמות עמודות אפשריים (yfinance יכול להחזיר שמות שונים)
+                column_mapping = {
+                    'Close': ['Close', 'close', 'CLOSE'],
+                    'Adj Close': ['Adj Close', 'AdjClose', 'Adj_Close', 'adj close', 'ADJ CLOSE', 'AdjClose'],
+                    'Volume': ['Volume', 'volume', 'VOLUME', 'vol']
+                }
+                
+                # פונקציה עזר למציאת עמודה
+                def find_column(possible_names):
+                    # נסה מציאת מדויקת
+                    for col_name in possible_names:
+                        if col_name in available_columns:
+                            return col_name
+                        # נסה עם נרמול
+                        if col_name.strip() in normalized_columns:
+                            return normalized_columns[col_name.strip()]
+                        # נסה case-insensitive
+                        if col_name.strip().lower() in normalized_lower:
+                            return normalized_lower[col_name.strip().lower()]
+                    return None
+                
+                # בדיקה ראשונית - אם אין Close, המניה לא תקינה
+                close_col = find_column(column_mapping['Close'])
+                close_found = close_col is not None
+                
+                if not close_found:
+                    print(f"⚠️ {symbol}: אין עמודת 'Close' - מדלג על מניה זו")
+                    print(f"   עמודות זמינות: {available_columns}")
+                    failed_symbols.append(symbol)
+                    continue
+                
+                # דיבוג: הדפס עמודות עבור מניות ראשונות (למקרה של בעיות)
+                if i < 3 and len(failed_symbols) == 0:
+                    print(f"   {symbol}: עמודות זמינות: {available_columns}")
+                
                 # שמור רק את השדות הנדרשים לניתוח:
                 # - Close: מחיר סגירה (לחישוב קורלציות מחיר)
                 # - Adj Close: מחיר סגירה מותאם (מותאם לפיצולי מניות ודיבידנדים)
                 # - Volume: נפח מסחר (לחישוב קורלציות נפח)
-                for field in ['Close', 'Adj Close', 'Volume']:
-                    all_data[(symbol, field)] = df[field]
+                for field, possible_names in column_mapping.items():
+                    found_column = find_column(possible_names)
+                    
+                    if found_column:
+                        all_data[(symbol, field)] = df[found_column]
+                    else:
+                        # אם לא נמצאה העמודה, נדפיס אזהרה ונשתמש בעמודה חלופית
+                        if field == 'Adj Close':
+                            # אם אין Adj Close, נשתמש ב-Close
+                            if close_col:
+                                if i < 5:  # הדפס רק עבור 5 מניות ראשונות כדי לא להציף
+                                    print(f"⚠️ {symbol}: אין עמודת 'Adj Close', משתמש ב-'Close'")
+                                all_data[(symbol, field)] = df[close_col]
+                            else:
+                                # זה לא אמור לקרות כי בדקנו קודם
+                                failed_symbols.append(symbol)
+                                break
+                        elif field == 'Volume':
+                            # Volume הוא אופציונלי יותר, נשתמש ב-0 אם אין
+                            if i < 5:  # הדפס רק עבור 5 מניות ראשונות
+                                print(f"⚠️ {symbol}: אין עמודת 'Volume', משתמש ב-0")
+                            all_data[(symbol, field)] = pd.Series(0, index=df.index)
             else:
                 failed_symbols.append(symbol)
             
