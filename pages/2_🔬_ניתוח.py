@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import os
 import pickle
+import time
 from datetime import datetime
 from correlation_engine import CorrelationEngine
 from data_fetcher import DataFetcher
@@ -375,8 +376,22 @@ if st.button("🔗 הרץ ניתוח קורלציה מלא", use_container_width
     if st.session_state.stock_data is None or st.session_state.stock_data.empty:
         st.error("❌ אין נתונים נטענים. יש לטעון נתונים קודם.")
     else:
+        # הערכת זמן לפני תחילת החישוב
+        num_stocks = len(st.session_state.symbols) if st.session_state.symbols else 0
+        if num_stocks > 0:
+            # הערכת זמן משוערת (בערך 0.001 שניות למניה למניה)
+            estimated_time = (num_stocks * num_stocks * 0.001) / 60  # בדקות
+            if use_rolling:
+                estimated_time *= 2  # קורלציה גלילית לוקחת יותר זמן
+            
+            if estimated_time > 1:
+                st.info(f"⏱️ **הערכת זמן:** כ-{estimated_time:.1f} דקות עבור {num_stocks} מניות")
+            else:
+                st.info(f"⏱️ **הערכת זמן:** כ-{estimated_time*60:.0f} שניות עבור {num_stocks} מניות")
+        
         progress_bar = st.progress(0)
         status_text = st.empty()
+        time_start = time.time()
         
         try:
             # יצירת מנוע
@@ -386,6 +401,7 @@ if st.button("🔗 הרץ ניתוח קורלציה מלא", use_container_width
             status_text.text("🔗 מחשב מטריצת קורלציה מלאה...")
             progress_bar.progress(20)
             
+            matrix_start = time.time()
             if use_rolling and rolling_window:
                 correlation_matrix = engine.calculate_rolling_correlation_matrix(
                     st.session_state.stock_data,
@@ -397,6 +413,7 @@ if st.button("🔗 הרץ ניתוח קורלציה מלא", use_container_width
                     st.session_state.stock_data,
                     field=full_analysis_field
                 )
+            matrix_time = time.time() - matrix_start
             
             if correlation_matrix.empty:
                 st.error("❌ לא ניתן לחשב מטריצת קורלציה")
@@ -405,10 +422,12 @@ if st.button("🔗 הרץ ניתוח קורלציה מלא", use_container_width
                 status_text.text("🔍 מוצא קורלציות גבוהות...")
                 
                 # מציאת הקורלציות הגבוהות ביותר
+                top_start = time.time()
                 top_correlations = engine.find_top_correlations(
                     correlation_matrix,
                     top_n=top_n_correlations
                 )
+                top_time = time.time() - top_start
                 
                 progress_bar.progress(80)
                 status_text.text("📊 מציג תוצאות...")
@@ -418,8 +437,18 @@ if st.button("🔗 הרץ ניתוח קורלציה מלא", use_container_width
                 st.session_state.top_correlations = top_correlations
                 st.session_state.full_analysis_field = full_analysis_field
                 
+                total_time = time.time() - time_start
+                
                 progress_bar.progress(100)
                 status_text.text("✅ ניתוח קורלציה מלא הושלם!")
+                
+                # הצגת זמן חישוב
+                st.success(f"""
+                ⏱️ **זמן חישוב:**
+                - מטריצת קורלציה: {matrix_time:.2f} שניות
+                - מציאת קורלציות גבוהות: {top_time:.2f} שניות
+                - **סה"כ: {total_time:.2f} שניות ({total_time/60:.2f} דקות)**
+                """)
                 
                 # הצגת תוצאות
                 st.markdown("---")
@@ -432,8 +461,9 @@ if st.button("🔗 הרץ ניתוח קורלציה מלא", use_container_width
                 st.success(f"""
                 ✅ **ניתוח הושלם בהצלחה!**
                 - מטריצת קורלציה: {len(correlation_matrix)} × {len(correlation_matrix)} מניות
-                - סה"כ קורלציות: {len(correlation_matrix) * (len(correlation_matrix) - 1) // 2}
+                - סה"כ קורלציות: {len(correlation_matrix) * (len(correlation_matrix) - 1) // 2:,}
                 - שדה נותח: {full_analysis_field}
+                - ⏱️ זמן חישוב: {total_time:.2f} שניות ({total_time/60:.2f} דקות)
                 """)
                 
                 # הצגת הקורלציות הגבוהות ביותר
@@ -521,18 +551,21 @@ with col2:
     if st.button("▶️ הרץ ניתוח", use_container_width=True, type="primary", key="run_analysis"):
         progress_bar = st.progress(0)
         status_text = st.empty()
+        time_start = time.time()
         
         try:
             # שלב 1: הורדת מניית ייחוס
             status_text.text(f"📥 מוריד נתוני מניית ייחוס ({reference_symbol})...")
             progress_bar.progress(10)
             
+            ref_start = time.time()
             fetcher = DataFetcher()
             reference_data = fetcher.get_reference_stock_data(
                 reference_symbol,
                 start_date=reference_start_date.strftime("%Y-%m-%d"),
                 end_date=datetime.now().strftime("%Y-%m-%d")
             )
+            ref_time = time.time() - ref_start
             
             if reference_data is None:
                 st.error(f"❌ לא ניתן להוריד נתוני מניית ייחוס ({reference_symbol})")
@@ -552,21 +585,34 @@ with col2:
             status_text.text("🔬 מריץ ניתוח מלא...")
             progress_bar.progress(50)
             
+            analysis_start = time.time()
             results = engine.run_full_analysis(
                 st.session_state.stock_data,
                 reference_data['price'],
                 reference_data['volume']
             )
+            analysis_time = time.time() - analysis_start
             
             # שמירת תוצאות
             st.session_state.results = results
             st.session_state.analysis_done = True
             st.session_state.engine = engine
             
+            total_time = time.time() - time_start
+            
             progress_bar.progress(100)
             status_text.text("✅ הניתוח הושלם!")
             
-            st.success("✅ הניתוח הושלם בהצלחה! עבור לעמוד 'תוצאות' כדי לראות את התוצאות.")
+            st.success(f"""
+            ✅ **הניתוח הושלם בהצלחה!**
+            
+            ⏱️ **זמן חישוב:**
+            - הורדת מניית ייחוס: {ref_time:.2f} שניות
+            - חישוב ניתוח: {analysis_time:.2f} שניות
+            - **סה"כ: {total_time:.2f} שניות ({total_time/60:.2f} דקות)**
+            
+            עבור לעמוד 'תוצאות' כדי לראות את התוצאות.
+            """)
             st.balloons()
             
         except Exception as e:
