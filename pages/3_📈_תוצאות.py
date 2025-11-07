@@ -78,6 +78,39 @@ with st.expander("🧮 הסבר על החישובים והלוגיקה", expande
             <li>הקורלציה המשולבת >= סף מובהקות (0.7)</li>
             <li>יחס הנפח > סף מהותיות (1.01)</li>
         </ul>
+        
+        <h4 style='color: #0066CC; margin-top: 1rem;'>5. חישוב התוצאות הסופיות</h4>
+        <p><strong>למניה בודדת</strong> (כמו באקסל, עמודה AH):</p>
+        <ul>
+            <li><strong>UP</strong> (שורה 2): =COUNTIF(W$2:W$1259, ">1.01")
+                <br>→ סופר כמה ימים היחס עבר את הסף (> 1.01)
+            </li>
+            <li><strong>TOTAL</strong> (שורה 4): =COUNTIF(W$2:W$1259, ">0")
+                <br>→ כל הימים עם קורלציה מובהקת
+            </li>
+            <li><strong>DOWN</strong> (שורה 3): =AH4-AH2
+                <br>→ ימים כשירים שלא היו הזדמנויות
+            </li>
+        </ul>
+        
+        <p><strong>סיכום כללי</strong> (כמו באקסל, עמודה AR):</p>
+        <ul>
+            <li><strong>סה"כ UP</strong> (שורה 2): =SUM(AH2:AQ2)
+                <br>→ סכום כל ההזדמנויות מכל המניות
+            </li>
+            <li><strong>אחוזים</strong>: UP / TOTAL × 100
+                <br>→ אחוז הימים שהיו הזדמנויות
+            </li>
+        </ul>
+        
+        <p style='background-color: #E6F2FF; padding: 10px; border-radius: 5px; margin-top: 10px;'>
+        <strong>📌 דוגמה:</strong><br>
+        אם מניית AAPL היו לה 287 ימי UP מתוך 1,143 ימים כשירים:<br>
+        • UP = 287<br>
+        • TOTAL = 1,143<br>
+        • DOWN = 1,143 - 287 = 856<br>
+        • אחוז UP = 287 / 1,143 × 100 = 25.1%
+        </p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -139,15 +172,18 @@ st.markdown("---")
 st.markdown("""
 <div style='direction: rtl; text-align: right;'>
     <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>📊 סטטיסטיקה כללית</h2>
+    <p style='color: #666;'>
+    סיכום כל ההזדמנויות מכל המניות (כמו עמודה AR באקסל)
+    </p>
 </div>
 """, unsafe_allow_html=True)
 
 stats = results['statistics']
 
-# חישוב סיכומים
-total_up = sum(s['UP'] for s in stats.values())
-total_down = sum(s['DOWN'] for s in stats.values())
-total_total = sum(s['TOTAL'] for s in stats.values())
+# חישוב סיכומים - בדיוק כמו SUM באקסל (שורה 2, עמודה AR)
+total_up = sum(s['UP'] for s in stats.values())       # =SUM(AH2:AQ2)
+total_down = sum(s['DOWN'] for s in stats.values())   # =SUM(AH3:AQ3)
+total_total = sum(s['TOTAL'] for s in stats.values()) # =SUM(AH4:AQ4)
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -178,12 +214,31 @@ with col4:
         len(stats)
     )
 
+# תיבת מידע על יתרונות המערכת
+st.info("""
+💡 **יתרונות המערכת Python לעומת האקסל:**
+
+• **בהירות**: כל מספר מובן ושקוף (אין "31 מסתורי")  
+• **קנה מידה**: 500 מניות במקום 10  
+• **נתונים**: 3,000+ ימים במקום 1,259  
+• **מהירות**: חישובים אוטומטיים ומהירים  
+• **ויזואליזציה**: גרפים אינטראקטיביים וטבלאות ברורות  
+
+**הלוגיקה זהה 100% לאקסל, אבל התוצאות ברורות הרבה יותר!** ✨
+""")
+
 st.markdown("---")
 
 # טבלת מניות
 st.markdown("""
 <div style='direction: rtl; text-align: right;'>
     <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>📋 פירוט למניות</h2>
+    <p style='color: #666;'>
+    כל מניה עם הספירות שלה (כמו עמודות AH-AQ באקסל):
+    <br>• <strong>UP</strong> = מספר ימים עם הזדמנויות (יחס נפח > 1.01)
+    <br>• <strong>DOWN</strong> = ימים כשירים ללא הזדמנויות
+    <br>• <strong>TOTAL</strong> = סה"כ ימים כשירים (קורלציה מובהקת)
+    </p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -236,6 +291,10 @@ st.markdown("---")
 st.markdown("""
 <div style='direction: rtl; text-align: right;'>
     <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>📊 תצוגה מפורטת - כל המניות מעל הסף</h2>
+    <p style='color: #666;'>
+    טבלה זו מציגה רק מניות שהקורלציה המשולבת <strong>ביום האחרון</strong> עוברת את הסף.
+    <br>כל מניה כוללת את כל הנתונים הרלוונטיים: קורלציות, יחס נפח, וסטטיסטיקות היסטוריות.
+    </p>
 </div>
 """, unsafe_allow_html=True)
 
