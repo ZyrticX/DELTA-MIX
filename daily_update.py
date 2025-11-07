@@ -100,10 +100,13 @@ class DailyUpdater:
                 logger.error("נכשל בהורדת נתוני מניות")
                 return False
             
-            logger.info(f"נטענו נתונים: {len(stock_data)} ימים, {len(stock_data.columns)//2} מניות")
+            logger.info(f"נטענו נתונים: {len(stock_data)} ימים, {len(stock_data.columns)//3} מניות")  # Close, Adj Close, Volume
             
-            # שלב 3: עדכון מניית ייחוס
-            logger.info("שלב 3: מעדכן מניית ייחוס...")
+            # שלב 3: הרצת ניתוח (כולל הורדת מניית ייחוס)
+            logger.info("שלב 3: מריץ ניתוח קורלציה...")
+            
+            # הורדת מניית ייחוס רק עבור הניתוח
+            logger.info(f"מוריד נתוני מניית ייחוס ({self.config['reference_symbol']})...")
             reference_data = self.fetcher.get_reference_stock_data(
                 self.config['reference_symbol'],
                 start_date=self.config['start_date'],
@@ -114,8 +117,6 @@ class DailyUpdater:
                 logger.error(f"נכשל בהורדת נתוני {self.config['reference_symbol']}")
                 return False
             
-            # שלב 4: הרצת ניתוח
-            logger.info("שלב 4: מריץ ניתוח קורלציה...")
             engine = CorrelationEngine(self.config)
             results = engine.run_full_analysis(
                 stock_data,
@@ -123,17 +124,17 @@ class DailyUpdater:
                 reference_data['volume']
             )
             
-            # שלב 5: זיהוי הזדמנויות
-            logger.info("שלב 5: מזהה הזדמנויות...")
+            # שלב 4: זיהוי הזדמנויות
+            logger.info("שלב 4: מזהה הזדמנויות...")
             opportunities = engine.find_today_opportunities(results)
             
             logger.info(f"נמצאו {len(opportunities)} הזדמנויות!")
             
-            # שלב 6: שמירת תוצאות
-            logger.info("שלב 6: שומר תוצאות...")
+            # שלב 5: שמירת תוצאות
+            logger.info("שלב 5: שומר תוצאות...")
             self.save_daily_results(opportunities, results)
             
-            # שלב 7: התראות
+            # שלב 6: התראות
             if opportunities:
                 self.send_notifications(opportunities)
             

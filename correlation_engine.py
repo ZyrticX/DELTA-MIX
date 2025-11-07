@@ -25,12 +25,14 @@ class CorrelationEngine:
                 - calc_mode: סוג חישוב (1=שער, 2=מחזור, 3=מכפלה)
                 - ma_length: אורך ממוצע נע (10)
                 - threshold: סף מהותיות (0.01)
+                - price_field: שדה מחיר לניתוח ('Close' או 'Adj Close')
         """
         self.block_length = params.get('block_length', 15)
         self.significance = params.get('significance', 0.7)
         self.calc_mode = params.get('calc_mode', 3)
         self.ma_length = params.get('ma_length', 10)
         self.threshold = params.get('threshold', 0.01)
+        self.price_field = params.get('price_field', 'Close')  # Close או Adj Close
         
     def calculate_rolling_correlation(self, 
                                      series: pd.Series, 
@@ -81,8 +83,14 @@ class CorrelationEngine:
         volume_correlations = {}
         
         for symbol in stock_data.columns.get_level_values(0).unique():
-            # קורלציית מחיר
-            stock_prices = stock_data[(symbol, 'Close')]
+            # קורלציית מחיר - משתמש בשדה שנבחר (Close או Adj Close)
+            if (symbol, self.price_field) not in stock_data.columns:
+                # אם השדה לא קיים, נסה Close
+                price_field = 'Close'
+            else:
+                price_field = self.price_field
+            
+            stock_prices = stock_data[(symbol, price_field)]
             price_corr = self.calculate_rolling_correlation(
                 stock_prices, 
                 reference_price, 

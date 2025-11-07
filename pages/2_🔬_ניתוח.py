@@ -95,6 +95,17 @@ with col2:
         step=0.1,
         help="סף אחוז מינימלי לזיהוי שינוי מהותי"
     ) / 100
+    
+    price_field = st.selectbox(
+        "שדה מחיר לניתוח",
+        options=['Close', 'Adj Close'],
+        index=0,
+        format_func=lambda x: {
+            'Close': 'Close - מחיר סגירה',
+            'Adj Close': 'Adj Close - מחיר סגירה מותאם'
+        }[x],
+        help="בחר איזה שדה מחיר להשתמש לחישוב קורלציות מחיר"
+    )
 
 # פרמטרים
 params = {
@@ -103,6 +114,7 @@ params = {
     'calc_mode': calc_mode,
     'ma_length': ma_length,
     'threshold': threshold,
+    'price_field': price_field,  # Close או Adj Close
     'start_date': datetime(2012, 1, 1).strftime("%Y-%m-%d"),
     'end_date': datetime.now().strftime("%Y-%m-%d"),
     'reference_symbol': 'SPY',
@@ -124,11 +136,44 @@ st.info(f"""
 - סוג חישוב: {params['calc_mode']}
 - ממוצע נע: {params['ma_length']} ימים
 - סף מהותיות: {params['threshold']*100:.1f}%
+- שדה מחיר: {params['price_field']}
 
 📊 **נתונים:**
 - מספר מניות: {len(st.session_state.symbols) if st.session_state.symbols else 'לא נטען'}
 - תקופה: {st.session_state.stock_data.index.min().strftime('%Y-%m-%d') if st.session_state.stock_data is not None else 'לא זמין'} עד {st.session_state.stock_data.index.max().strftime('%Y-%m-%d') if st.session_state.stock_data is not None else 'לא זמין'}
 """)
+
+# הגדרת מניית ייחוס
+st.markdown("---")
+st.markdown("""
+<div style='direction: rtl; text-align: right;'>
+    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>📊 מניית ייחוס</h2>
+</div>
+""", unsafe_allow_html=True)
+
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    reference_symbol = st.text_input(
+        "סימול מניית ייחוס",
+        value="SPY",
+        help="מניית ייחוס לחישוב קורלציות (ברירת מחדל: SPY = S&P 500 ETF)"
+    )
+    
+    reference_start_date = st.date_input(
+        "תאריך התחלה למניית ייחוס",
+        value=datetime(2012, 1, 1),
+        min_value=datetime(2000, 1, 1),
+        max_value=datetime.now(),
+        help="תאריך התחלה להורדת נתוני מניית הייחוס"
+    )
+
+with col2:
+    st.info("""
+    **מניית ייחוס** משמשת כבסיס לחישוב הקורלציות.
+    
+    המניות יושוו למניית הייחוס כדי לזהות תנועות דומות.
+    """)
 
 # כפתור הרצת ניתוח
 st.markdown("---")
@@ -141,20 +186,39 @@ with col2:
         status_text = st.empty()
         
         try:
-            # יצירת המנוע
-            status_text.text("🔧 מאתחל מנוע חישוב...")
+            # שלב 1: הורדת מניית ייחוס
+            status_text.text(f"📥 מוריד נתוני מניית ייחוס ({reference_symbol})...")
             progress_bar.progress(10)
+            
+            fetcher = DataFetcher()
+            reference_data = fetcher.get_reference_stock_data(
+                reference_symbol,
+                start_date=reference_start_date.strftime("%Y-%m-%d"),
+                end_date=datetime.now().strftime("%Y-%m-%d")
+            )
+            
+            if reference_data is None:
+                st.error(f"❌ לא ניתן להוריד נתוני מניית ייחוס ({reference_symbol})")
+                st.stop()
+            
+            # שמירת reference_data ב-session state
+            st.session_state.reference_data = reference_data
+            st.session_state.reference_symbol = reference_symbol
+            
+            # שלב 2: יצירת המנוע
+            status_text.text("🔧 מאתחל מנוע חישוב...")
+            progress_bar.progress(30)
             
             engine = CorrelationEngine(params)
             
-            # הרצת הניתוח
+            # שלב 3: הרצת הניתוח
             status_text.text("🔬 מריץ ניתוח מלא...")
-            progress_bar.progress(30)
+            progress_bar.progress(50)
             
             results = engine.run_full_analysis(
                 st.session_state.stock_data,
-                st.session_state.reference_data['price'],
-                st.session_state.reference_data['volume']
+                reference_data['price'],
+                reference_data['volume']
             )
             
             # שמירת תוצאות

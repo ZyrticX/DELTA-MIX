@@ -102,7 +102,7 @@ def download_all_stocks(start_date="2012-01-01", symbols_file=None):
         print("="*70)
         print("✅ הורדה הושלמה בהצלחה!")
         print("="*70)
-        print(f"מספר מניות: {len(stock_data.columns)//2}")
+        print(f"מספר מניות: {len(stock_data.columns)//3}")  # Close, Adj Close, Volume
         print(f"מספר ימים: {len(stock_data)}")
         print(f"תקופה: {stock_data.index.min().strftime('%Y-%m-%d')} עד {stock_data.index.max().strftime('%Y-%m-%d')}")
         print()

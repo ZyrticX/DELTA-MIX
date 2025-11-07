@@ -171,12 +171,6 @@ with col1:
         max_value=datetime.now()
     )
     
-    reference_symbol = st.text_input(
-        "מניית ייחוס",
-        value="SPY",
-        help="סימול מניית הייחוס (ברירת מחדל: SPY = S&P 500 ETF)"
-    )
-    
     num_stocks = st.number_input(
         "מספר מניות מ-S&P 500",
         min_value=10,
@@ -220,36 +214,22 @@ with col2:
             if stock_data is None or stock_data.empty:
                 st.error("❌ כשלון בהורדת נתוני מניות")
             else:
-                # שלב 3: הורדת מניית ייחוס
-                status_text.text("📥 מוריד נתוני מניית ייחוס...")
-                progress_bar.progress(70)
+                # שמירה ב-session state (ללא מניית ייחוס - היא תורד רק בניתוח)
+                st.session_state.stock_data = stock_data
+                st.session_state.data_loaded = True
+                st.session_state.symbols = symbols
                 
-                reference_data = fetcher.get_reference_stock_data(
-                    reference_symbol,
-                    start_date=start_date.strftime("%Y-%m-%d"),
-                    end_date=end_date.strftime("%Y-%m-%d")
-                )
+                progress_bar.progress(100)
+                status_text.text("✅ הנתונים נטענו בהצלחה!")
                 
-                if reference_data is None:
-                    st.warning(f"⚠️ לא ניתן להוריד נתוני {reference_symbol}")
-                else:
-                    # שמירה ב-session state
-                    st.session_state.stock_data = stock_data
-                    st.session_state.reference_data = reference_data
-                    st.session_state.data_loaded = True
-                    st.session_state.symbols = symbols
-                    
-                    progress_bar.progress(100)
-                    status_text.text("✅ הנתונים נטענו בהצלחה!")
-                    
-                    st.success(f"""
-                    ✅ **הנתונים נטענו בהצלחה!**
-                    - {len(symbols)} מניות
-                    - {len(stock_data)} ימי מסחר
-                    - תקופה: {stock_data.index.min().strftime('%Y-%m-%d')} עד {stock_data.index.max().strftime('%Y-%m-%d')}
-                    """)
-                    
-                    st.rerun()
+                st.success(f"""
+                ✅ **הנתונים נטענו בהצלחה!**
+                - {len(symbols)} מניות
+                - {len(stock_data)} ימי מסחר
+                - תקופה: {stock_data.index.min().strftime('%Y-%m-%d')} עד {stock_data.index.max().strftime('%Y-%m-%d')}
+                """)
+                
+                st.rerun()
         
         except Exception as e:
             st.error(f"❌ שגיאה בטעינת נתונים: {str(e)}")
