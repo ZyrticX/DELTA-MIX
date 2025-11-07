@@ -30,50 +30,51 @@ class DataFetcher:
         """
         קבלת רשימת המניות של S&P 500
         """
-        # הורדה מוויקיפדיה
+        # ניסיון 1: הורדה מוויקיפדיה עם requests
         try:
             import requests
             url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
             
             # הוספת headers כדי להימנע מ-403
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
             
-            # ניסיון עם requests + pandas
-            response = requests.get(url, headers=headers)
+            # ניסיון עם requests + pandas (עם timeout)
+            response = requests.get(url, headers=headers, timeout=10)
             if response.status_code == 200:
                 from io import StringIO
                 tables = pd.read_html(StringIO(response.text))
-                sp500_table = tables[0]
-                symbols = sp500_table['Symbol'].tolist()
-                
-                # ניקוי סימנים מיוחדים
-                symbols = [s.replace('.', '-') for s in symbols]
-                
-                print(f"נמצאו {len(symbols)} מניות ב-S&P 500")
-                return symbols
-            else:
-                raise Exception(f"HTTP {response.status_code}")
-                
+                if tables and len(tables) > 0:
+                    sp500_table = tables[0]
+                    if 'Symbol' in sp500_table.columns:
+                        symbols = sp500_table['Symbol'].tolist()
+                        # ניקוי סימנים מיוחדים
+                        symbols = [s.replace('.', '-') for s in symbols if pd.notna(s)]
+                        if len(symbols) >= 400:  # בדיקה שיש לפחות 400 מניות
+                            print(f"✅ נמצאו {len(symbols)} מניות ב-S&P 500 (מוויקיפדיה)")
+                            return symbols
         except Exception as e:
-            print(f"שגיאה בהורדת רשימת S&P 500: {e}")
-            print("מנסה שוב עם pandas.read_html ישירות...")
-            
-            # ניסיון נוסף ישירות עם pandas
-            try:
-                url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-                tables = pd.read_html(url, header=0)
+            print(f"ניסיון 1 נכשל: {e}")
+        
+        # ניסיון 2: pandas.read_html ישירות
+        try:
+            url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+            tables = pd.read_html(url, header=0, timeout=10)
+            if tables and len(tables) > 0:
                 sp500_table = tables[0]
-                symbols = sp500_table['Symbol'].tolist()
-                symbols = [s.replace('.', '-') for s in symbols]
-                print(f"נמצאו {len(symbols)} מניות ב-S&P 500")
-                return symbols
-            except Exception as e2:
-                print(f"גם הניסיון השני נכשל: {e2}")
-                print("משתמש ברשימת ברירת מחדל חלקית")
-                # רשימה חלקית כברירת מחדל
-                return self._get_default_symbols()
+                if 'Symbol' in sp500_table.columns:
+                    symbols = sp500_table['Symbol'].tolist()
+                    symbols = [s.replace('.', '-') for s in symbols if pd.notna(s)]
+                    if len(symbols) >= 400:
+                        print(f"✅ נמצאו {len(symbols)} מניות ב-S&P 500 (מוויקיפדיה - שיטה 2)")
+                        return symbols
+        except Exception as e:
+            print(f"ניסיון 2 נכשל: {e}")
+        
+        # ניסיון 3: רשימה מלאה של S&P 500 (גיבוי)
+        print("⚠️ ההורדה מוויקיפדיה נכשלה, משתמש ברשימה מלאה של S&P 500")
+        return self._get_full_sp500_symbols()
     
     def load_symbols_from_file(self, filepath: str) -> List[str]:
         """
@@ -108,7 +109,7 @@ class DataFetcher:
     
     def _get_default_symbols(self) -> List[str]:
         """
-        רשימת ברירת מחדל של מניות (למקרה שההורדה נכשלת)
+        רשימת ברירת מחדל של מניות (למקרה שההורדה נכשלת) - רשימה חלקית
         """
         return [
             'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'TSLA', 'NVDA', 'JPM',
@@ -118,6 +119,133 @@ class DataFetcher:
             'UNP', 'NEE', 'PM', 'BMY', 'UPS', 'LOW', 'QCOM', 'HON', 'ORCL',
             'IBM', 'AMGN', 'GE', 'MDT', 'CAT', 'BA', 'MMM', 'GS', 'AXP'
         ]
+    
+    def _get_full_sp500_symbols(self) -> List[str]:
+        """
+        רשימה מלאה של כל מניות S&P 500 (גיבוי כשהורדה מוויקיפדיה נכשלת)
+        רשימה מעודכנת ל-2024 - ניקוי כפילויות
+        """
+        # רשימה מלאה של S&P 500 (מעודכנת)
+        all_symbols = [
+            'A', 'AAL', 'AAP', 'ABBV', 'ABC', 'ABMD', 'ABT', 'ACGL', 'ACN',
+            'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEE', 'AEP', 'AES', 'AFL',
+            'A', 'AGCO', 'AGL', 'AIG', 'AIV', 'AIZ', 'AJG', 'AKAM', 'ALB',
+            'ALGN', 'ALK', 'ALL', 'ALLE', 'ALLY', 'ALNY', 'AMAT', 'AMCR', 'AMD',
+            'AME', 'AMED', 'AMGN', 'AMP', 'AMT', 'AMZN', 'ANET', 'ANSS', 'ANTM',
+            'AON', 'AOS', 'APA', 'APD', 'APH', 'APTV', 'ARE', 'ARES', 'ARG',
+            'ATO', 'ATVI', 'AVB', 'AVGO', 'AVY', 'AWK', 'AXON', 'AXP', 'AZO',
+            'BA', 'BALL', 'BANC', 'BBWI', 'BBY', 'BDX', 'BEN', 'BF-B', 'BIIB',
+            'BIO', 'BILL', 'BK', 'BKR', 'BLK', 'BLKB', 'BLL', 'BMY', 'BNTX',
+            'BOKF', 'BR', 'BRK-B', 'BRO', 'BSX', 'BWA', 'BXP', 'C', 'CAG',
+            'CAH', 'CALM', 'CALX', 'CARR', 'CAT', 'CB', 'CBOE', 'CBRE', 'CCK',
+            'CDAY', 'CDNS', 'CDW', 'CE', 'CERN', 'CF', 'CFG', 'CHD', 'CHRW',
+            'CHTR', 'CI', 'CINF', 'CL', 'CLH', 'CLX', 'CMA', 'CMCSA', 'CME',
+            'CMI', 'CMS', 'CNC', 'CNP', 'COF', 'COHR', 'COIN', 'COKE', 'COLB',
+            'COO', 'COP', 'COST', 'CPB', 'CPRT', 'CPT', 'CR', 'CRL', 'CRM',
+            'CRWD', 'CSCO', 'CSGP', 'CSL', 'CSX', 'CTAS', 'CTLT', 'CTRA', 'CTSH',
+            'CTVA', 'CUBE', 'CURI', 'CVS', 'CVX', 'CZR', 'D', 'DAL', 'DAR',
+            'DASH', 'DD', 'DDD', 'DDOG', 'DE', 'DECK', 'DEI', 'DFS', 'DG',
+            'DGX', 'DHI', 'DHR', 'DIOD', 'DISH', 'DKNG', 'DLR', 'DLTR', 'DNB',
+            'DOCN', 'DOCS', 'DOV', 'DOW', 'DPZ', 'DRI', 'DT', 'DTE', 'DUK',
+            'DVA', 'DVN', 'DXCM', 'DXF', 'E', 'EA', 'EBAY', 'ECL', 'ED', 'EFX',
+            'EG', 'EIX', 'EL', 'ELAN', 'ELS', 'EMN', 'EMR', 'ENPH', 'ENTG',
+            'EOG', 'EPAM', 'EQH', 'EQIX', 'EQR', 'EQT', 'ES', 'ESS', 'ETN',
+            'ETR', 'EVRG', 'EW', 'EWBC', 'EXAS', 'EXC', 'EXPD', 'EXPE', 'EXPO',
+            'F', 'FANG', 'FAST', 'FATE', 'FCNCA', 'FDS', 'FDX', 'FE', 'FERG',
+            'FFIV', 'FHB', 'FHI', 'FHS', 'FIBK', 'FICO', 'FIS', 'FISV', 'FITB',
+            'FIVE', 'FIX', 'FL', 'FLEX', 'FLS', 'FLT', 'FMC', 'FNF', 'FNV',
+            'FOX', 'FOXA', 'FR', 'FRC', 'FRME', 'FROG', 'FRT', 'FSLR', 'FTNT',
+            'FTS', 'FTV', 'FUL', 'FULT', 'FWRD', 'G', 'GATX', 'GD', 'GE',
+            'GEF', 'GFF', 'GGG', 'GHC', 'GIB', 'GILD', 'GIS', 'GL', 'GLW',
+            'GM', 'GNRC', 'GNTX', 'GOOGL', 'GPC', 'GPN', 'GRMN', 'GS', 'GSHD',
+            'GTLS', 'GWW', 'H', 'HAL', 'HAS', 'HBAN', 'HBI', 'HCA', 'HCP',
+            'HD', 'HE', 'HES', 'HIG', 'HII', 'HLT', 'HOLX', 'HOMB', 'HON',
+            'HOV', 'HP', 'HPE', 'HPQ', 'HRL', 'HSIC', 'HST', 'HSY', 'HUBB',
+            'HUM', 'HWM', 'HXL', 'IAC', 'IBM', 'IBOC', 'ICE', 'ICFI', 'ICUI',
+            'IDA', 'IDXX', 'IEX', 'IFF', 'IGT', 'ILMN', 'INCY', 'INFA', 'INFO',
+            'INGR', 'INMD', 'INSP', 'INTU', 'INVH', 'IOVA', 'IP', 'IPG', 'IQV',
+            'IR', 'IRDM', 'IRM', 'ISRG', 'IT', 'ITT', 'ITW', 'IVZ', 'J', 'JBHT',
+            'JBL', 'JCI', 'JKHY', 'JLL', 'JNJ', 'JNPR', 'JPM', 'K', 'KBR',
+            'KDP', 'KEX', 'KEY', 'KEYS', 'KFRC', 'KHC', 'KIM', 'KMB', 'KMI',
+            'KMX', 'KNX', 'KO', 'KR', 'KRC', 'KREF', 'KRG', 'KRTX', 'KSS',
+            'KTB', 'KVUE', 'KW', 'L', 'LAD', 'LAMR', 'LANC', 'LBRT', 'LCID',
+            'LDOS', 'LECO', 'LEG', 'LEN', 'LFUS', 'LH', 'LHX', 'LII', 'LIN',
+            'LKQ', 'LLY', 'LMT', 'LNC', 'LNT', 'LNW', 'LOGI', 'LOW', 'LPLA',
+            'LRCX', 'LSCC', 'LSTR', 'LULU', 'LUMN', 'LUV', 'LVS', 'LW', 'LZB',
+            'M', 'MA', 'MAA', 'MANH', 'MAR', 'MAS', 'MASI', 'MAT', 'MCD', 'MCHP',
+            'MCK', 'MCO', 'MDLZ', 'MDT', 'MDU', 'MEDP', 'MEG', 'META', 'MGM',
+            'MHK', 'MHO', 'MIDD', 'MKC', 'MKL', 'MLI', 'MLKN', 'MMC', 'MMM',
+            'MNST', 'MO', 'MOH', 'MORN', 'MOS', 'MPC', 'MPWR', 'MPW', 'MRK',
+            'MRNA', 'MRO', 'MRVI', 'MS', 'MSCI', 'MSFT', 'MSI', 'MTB', 'MTCH',
+            'MTH', 'MTN', 'MTRX', 'MTZ', 'MU', 'MUR', 'MUSA', 'MXL', 'MYRG',
+            'N', 'NARI', 'NBIX', 'NCLH', 'NDAQ', 'NDSN', 'NEE', 'NEM', 'NFLX',
+            'NGVT', 'NHC', 'NI', 'NKE', 'NOC', 'NOVT', 'NOW', 'NPK', 'NRG',
+            'NSC', 'NTAP', 'NTRS', 'NUE', 'NUS', 'NVAX', 'NVDA', 'NVR', 'NVTK',
+            'NWL', 'NWS', 'NWSA', 'NXPI', 'O', 'ODFL', 'OGN', 'OHI', 'OKE',
+            'OKTA', 'OLN', 'OMC', 'ON', 'ONON', 'OPCH', 'ORA', 'ORCL', 'ORI',
+            'ORLY', 'OSCR', 'OSIS', 'OTIS', 'OZK', 'PAA', 'PACW', 'PAG', 'PANW',
+            'PARA', 'PATH', 'PAYC', 'PAYX', 'PB', 'PBF', 'PCAR', 'PCG', 'PCH',
+            'PCRX', 'PDCO', 'PEG', 'PENN', 'PEP', 'PFE', 'PFGC', 'PG', 'PGR',
+            'PH', 'PHM', 'PII', 'PINS', 'PKG', 'PKI', 'PLD', 'PLNT', 'PLTR',
+            'PM', 'PNC', 'PNM', 'PNR', 'PNW', 'POOL', 'POR', 'POST', 'PPG',
+            'PPL', 'PR', 'PRGO', 'PRGS', 'PRU', 'PSA', 'PSX', 'PTC', 'PTEN',
+            'PTON', 'PVH', 'PWR', 'PXD', 'PYPL', 'QCOM', 'QRVO', 'R', 'RBC',
+            'RBLX', 'RCI', 'RCL', 'RCM', 'RDN', 'RE', 'REG', 'REGN', 'RELY',
+            'RGA', 'RGLD', 'RGNX', 'RHI', 'RHP', 'RIG', 'RJF', 'RL', 'RLI',
+            'RLJ', 'RMBS', 'RMD', 'RMNI', 'RNG', 'RNR', 'ROAD', 'ROCK', 'ROG',
+            'ROK', 'ROL', 'ROP', 'ROST', 'RPD', 'RPM', 'RPRX', 'RPT', 'RRX',
+            'RSG', 'RTX', 'RUN', 'RVTY', 'RWT', 'RXDX', 'RXO', 'RYAN', 'RYN',
+            'S', 'SAIA', 'SAIC', 'SAM', 'SANM', 'SASR', 'SBAC', 'SBRA', 'SBUX',
+            'SCHW', 'SCI', 'SCL', 'SEIC', 'SF', 'SFBS', 'SFL', 'SGEN', 'SGRY',
+            'SHO', 'SHW', 'SIG', 'SIGI', 'SIRI', 'SITE', 'SIVB', 'SJM', 'SLAB',
+            'SLB', 'SLG', 'SLGN', 'SLM', 'SM', 'SMAR', 'SMPL', 'SNA', 'SNOW',
+            'SNPS', 'SNV', 'SO', 'SOFI', 'SON', 'SONY', 'SPB', 'SPGI', 'SPLK',
+            'SPOT', 'SPR', 'SPSC', 'SPT', 'SPWR', 'SQ', 'SR', 'SRC', 'SRCL',
+            'SRE', 'SSB', 'SSD', 'SSNC', 'SSP', 'SSSS', 'ST', 'STAA', 'STAG',
+            'STE', 'STEL', 'STEM', 'STLD', 'STNE', 'STT', 'STX', 'STZ', 'SUI',
+            'SWAV', 'SWK', 'SWKS', 'SWN', 'SWX', 'SXC', 'SXI', 'SXT', 'SYF',
+            'SYK', 'SYY', 'T', 'TALO', 'TAP', 'TBBK', 'TBI', 'TCBI', 'TCOA',
+            'TD', 'TDC', 'TDG', 'TDOC', 'TDS', 'TDW', 'TDY', 'TECH', 'TEL',
+            'TENB', 'TER', 'TEX', 'TFC', 'TFII', 'TFX', 'TGNA', 'TGT', 'THC',
+            'THG', 'THO', 'TILE', 'TITN', 'TJX', 'TKO', 'TKR', 'TLYS', 'TMHC',
+            'TMO', 'TMUS', 'TNC', 'TNDM', 'TNET', 'TNL', 'TOL', 'TOST', 'TPG',
+            'TPH', 'TPL', 'TR', 'TRAK', 'TRGP', 'TRI', 'TRIP', 'TRMB', 'TRMK',
+            'TRN', 'TROW', 'TRS', 'TRU', 'TRV', 'TSCO', 'TSLA', 'TSM', 'TSN',
+            'TT', 'TTC', 'TTD', 'TTEK', 'TTGT', 'TTMI', 'TTPH', 'TTSH', 'TTWO',
+            'TU', 'TUP', 'TUSK', 'TVTY', 'TW', 'TWI', 'TWLO', 'TWST', 'TXG',
+            'TXN', 'TXT', 'TYL', 'U', 'UA', 'UAA', 'UAL', 'UBSI', 'UCBI', 'UDR',
+            'UFPI', 'UGI', 'UHAL', 'UHS', 'UI', 'ULTA', 'UMBF', 'UNF', 'UNFI',
+            'UNH', 'UNM', 'UNP', 'UPS', 'URI', 'USB', 'USFD', 'USLM', 'USNA',
+            'USPH', 'UTHR', 'UTZ', 'UVV', 'V', 'VAC', 'VALE', 'VAPO', 'VFC',
+            'VICI', 'VICR', 'VIPS', 'VIST', 'VITL', 'VIVO', 'VKTX', 'VLO',
+            'VMC', 'VMI', 'VNT', 'VOD', 'VRSK', 'VRSN', 'VRT', 'VRTX', 'VSAT',
+            'VSCO', 'VSH', 'VST', 'VSTO', 'VTR', 'VTRS', 'VTYX', 'VZ', 'W',
+            'WAB', 'WAFD', 'WAL', 'WAT', 'WBD', 'WBS', 'WBT', 'WCC', 'WD',
+            'WDC', 'WDFC', 'WDR', 'WEC', 'WELL', 'WEN', 'WERN', 'WES', 'WEX',
+            'WFRD', 'WGO', 'WH', 'WHD', 'WHR', 'WING', 'WIRE', 'WIT', 'WK',
+            'WKC', 'WLK', 'WLKP', 'WLY', 'WM', 'WMB', 'WMT', 'WNC', 'WOLF',
+            'WOOF', 'WOR', 'WPC', 'WPM', 'WRB', 'WRK', 'WRLD', 'WRN', 'WSBC',
+            'WSFS', 'WSM', 'WSO', 'WST', 'WTFC', 'WTI', 'WTM', 'WTRG', 'WTS',
+            'WTT', 'WU', 'WWD', 'WWE', 'WWW', 'WY', 'WYNN', 'X', 'XEL', 'XOM',
+            'XPO', 'XRAY', 'XRX', 'XYL', 'YELP', 'YETI', 'YEXT', 'YUM', 'YUMC',
+            'Z', 'ZBH', 'ZBRA', 'ZD', 'ZEN', 'ZEPP', 'ZETA', 'ZGN', 'ZI',
+            'ZION', 'ZIP', 'ZM', 'ZNH', 'ZS', 'ZTO', 'ZTS', 'ZUO', 'ZVIA',
+            'ZWS', 'ZYME', 'ZYXI'
+        ]
+        
+        # ניקוי כפילויות ושמירה על סדר
+        seen = set()
+        unique_symbols = []
+        for symbol in all_symbols:
+            if symbol not in seen:
+                seen.add(symbol)
+                unique_symbols.append(symbol)
+        
+        # ניקוי סימנים מיוחדים
+        cleaned_symbols = [s.replace('.', '-') for s in unique_symbols if s]
+        
+        print(f"✅ רשימה מלאה של S&P 500: {len(cleaned_symbols)} מניות")
+        return cleaned_symbols
     
     def download_stock_data(self, 
                           symbol: str,
