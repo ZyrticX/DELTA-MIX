@@ -37,8 +37,7 @@ class CorrelationEngine:
     def calculate_rolling_correlation(self, 
                                      series: pd.Series, 
                                      reference: pd.Series,
-                                     window: int,
-                                     use_returns: bool = True) -> pd.Series:
+                                     window: int) -> pd.Series:
         """
         חישוב קורלציה גלילית - בדיוק כמו CORREL+OFFSET באקסל
         
@@ -46,43 +45,33 @@ class CorrelationEngine:
         =CORREL(OFFSET(D2,0,0,פרמטרים!$E$2,1),
                 OFFSET(פרמטרים!$C$2,0,0,פרמטרים!$E$2,1))
         
-        Args:
-            series: סדרת נתונים של המניה
-            reference: סדרת נתונים של מניית הייחוס
-            window: אורך החלון לחישוב קורלציה
-            use_returns: אם True, מחשב קורלציה על תשואות (אחוזי שינוי)
-                        אם False, מחשב קורלציה על ערכים גולמיים
-        """
-        # המרה לתשואות אם נדרש
-        if use_returns:
-            # חישוב תשואות יומיות (percentage change)
-            series_data = series.pct_change()
-            reference_data = reference.pct_change()
-        else:
-            series_data = series
-            reference_data = reference
+        🔬 חישוב על מחירים גולמיים (לא תשואות!) - בדיוק כמו באקסל
         
+        Args:
+            series: סדרת נתונים של המניה (מחירים או נפחים)
+            reference: סדרת נתונים של מניית הייחוס
+            window: אורך החלון לחישוב קורלציה (ברירת מחדל: 15)
+        
+        Returns:
+            pd.Series: קורלציות גלילית לכל תאריך
+        """
         correlations = []
         
-        for i in range(len(series_data)):
-            if i < window:
-                # אין מספיק נתונים - החזר 0
+        for i in range(len(series)):
+            if i < window - 1:
+                # אין מספיק נתונים - החזר 0 (כמו IF($A2>1230,0,...) באקסל)
                 correlations.append(0)
             else:
-                # קח window ערכים אחורה (לא כולל הערך הנוכחי כי pct_change עושה NaN בראשון)
-                stock_window = series_data.iloc[i-window+1:i+1]
-                ref_window = reference_data.iloc[i-window+1:i+1]
+                # קח window ערכים אחורה (כולל הערך הנוכחי)
+                # זה בדיוק כמו OFFSET(D2,0,0,15,1) באקסל
+                stock_window = series.iloc[i-window+1:i+1]
+                ref_window = reference.iloc[i-window+1:i+1]
                 
-                # חישוב קורלציה
+                # חישוב קורלציה (CORREL באקסל = קורלציית פירסון)
                 if len(stock_window) == window and len(ref_window) == window:
-                    # הסר NaN (במיוחד מה-pct_change הראשון)
-                    valid_mask = stock_window.notna() & ref_window.notna()
-                    stock_clean = stock_window[valid_mask]
-                    ref_clean = ref_window[valid_mask]
-                    
-                    # צריך לפחות חצי מהנתונים להיות תקינים
-                    if len(stock_clean) >= window * 0.5:
-                        corr = stock_clean.corr(ref_clean)
+                    # בדוק שאין NaN
+                    if stock_window.notna().all() and ref_window.notna().all():
+                        corr = stock_window.corr(ref_window)
                         correlations.append(corr if not np.isnan(corr) else 0)
                     else:
                         correlations.append(0)
@@ -116,8 +105,7 @@ class CorrelationEngine:
             price_corr = self.calculate_rolling_correlation(
                 stock_prices, 
                 reference_price, 
-                self.block_length,
-                use_returns=True  # חישוב על תשואות
+                self.block_length
             )
             price_correlations[symbol] = price_corr
             
@@ -126,8 +114,7 @@ class CorrelationEngine:
             volume_corr = self.calculate_rolling_correlation(
                 stock_volumes,
                 reference_volume,
-                self.block_length,
-                use_returns=True  # חישוב על שינויים בנפח
+                self.block_length
             )
             volume_correlations[symbol] = volume_corr
         
