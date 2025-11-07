@@ -88,6 +88,120 @@ def get_stock_info(symbol):
     
     return info
 
+def load_data_from_cache():
+    """טעינת נתונים מהקאש"""
+    cache_dir = "data_cache"
+    
+    if not os.path.exists(cache_dir):
+        return None, []
+    
+    # קבלת כל המניות בקאש
+    symbols = get_cached_stocks()
+    
+    if not symbols:
+        return None, []
+    
+    # ארגון קבצים לפי symbol - נקח את הקובץ האחרון לכל symbol
+    symbol_files = {}
+    for symbol in symbols:
+        symbol_files[symbol] = []
+        for filename in os.listdir(cache_dir):
+            if filename.startswith(f"{symbol}_") and filename.endswith('.pkl'):
+                filepath = os.path.join(cache_dir, filename)
+                file_mtime = os.path.getmtime(filepath)
+                symbol_files[symbol].append((filename, filepath, file_mtime))
+        
+        # מיון לפי תאריך עדכון - הקובץ האחרון ראשון
+        symbol_files[symbol].sort(key=lambda x: x[2], reverse=True)
+    
+    if not any(symbol_files.values()):
+        return None, []
+    
+    # טעינת נתונים - נקח את הקובץ האחרון לכל symbol
+    all_data = {}
+    loaded_symbols = []
+    
+    for symbol, files_list in symbol_files.items():
+        if not files_list:
+            continue
+        
+        # נקח את הקובץ האחרון
+        filename, filepath, _ = files_list[0]
+        
+        try:
+            with open(filepath, 'rb') as f:
+                df = pickle.load(f)
+            
+            if df is not None and not df.empty:
+                # בדיקת עמודות זמינות
+                available_columns = df.columns.tolist()
+                
+                # מיפוי שמות עמודות
+                column_mapping = {
+                    'Close': ['Close', 'close', 'CLOSE'],
+                    'Adj Close': ['Adj Close', 'AdjClose', 'Adj_Close', 'adj close', 'ADJ CLOSE'],
+                    'Volume': ['Volume', 'volume', 'VOLUME', 'vol']
+                }
+                
+                def find_column(possible_names):
+                    for col_name in possible_names:
+                        if col_name in available_columns:
+                            return col_name
+                    return None
+                
+                # טעינת Close
+                close_col = find_column(column_mapping['Close'])
+                if close_col:
+                    all_data[(symbol, 'Close')] = df[close_col]
+                    
+                    # טעינת Adj Close (או Close אם אין)
+                    adj_close_col = find_column(column_mapping['Adj Close'])
+                    if adj_close_col:
+                        all_data[(symbol, 'Adj Close')] = df[adj_close_col]
+                    else:
+                        all_data[(symbol, 'Adj Close')] = df[close_col]
+                    
+                    # טעינת Volume (או 0 אם אין)
+                    volume_col = find_column(column_mapping['Volume'])
+                    if volume_col:
+                        all_data[(symbol, 'Volume')] = df[volume_col]
+                    else:
+                        all_data[(symbol, 'Volume')] = pd.Series(0, index=df.index)
+                    
+                    loaded_symbols.append(symbol)
+        except Exception as e:
+            continue
+    
+    if not all_data:
+        return None, []
+    
+    # יצירת DataFrame משולב
+    combined_df = pd.DataFrame(all_data)
+    return combined_df, loaded_symbols
+
+# טעינה אוטומטית מהקאש אם אין נתונים ב-session state
+if not st.session_state.data_loaded:
+    cached_stocks_list = get_cached_stocks()
+    if cached_stocks_list:
+        # נסה לטעון מהקאש
+        stock_data, symbols = load_data_from_cache()
+        
+        if stock_data is not None and not stock_data.empty:
+            # עדכון session state
+            st.session_state.stock_data = stock_data
+            st.session_state.data_loaded = True
+            st.session_state.symbols = symbols
+            
+            # הצגת הודעה שהנתונים נטענו מהקאש
+            st.success(f"""
+            ✅ **הנתונים נטענו אוטומטית מהקאש!**
+            - {len(symbols)} מניות נטענו
+            - {len(stock_data)} ימי מסחר
+            - תקופה: {stock_data.index.min().strftime('%Y-%m-%d')} עד {stock_data.index.max().strftime('%Y-%m-%d')}
+            
+            💡 **טיפ:** הנתונים נשמרים בקאש, כך שלא תצטרך להוריד אותם מחדש כל פעם!
+            """)
+
 # סקציה 1: רשימת מניות בקאש
 st.markdown("""
 <div style='direction: rtl; text-align: right;'>
