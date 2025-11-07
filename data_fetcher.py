@@ -125,20 +125,22 @@ class DataFetcher:
         רשימה מלאה של כל מניות S&P 500 (גיבוי כשהורדה מוויקיפדיה נכשלת)
         רשימה מעודכנת ל-2024 - ניקוי כפילויות
         """
-        # רשימה מלאה של S&P 500 (מעודכנת)
+        # רשימה מלאה של S&P 500 (מעודכנת 2024 - הוסרו מניות שהוסרו מהמסחר)
+        # הוסרו: ABC, ABMD, AMED, ARG, ATVI, BLL, CERN (נרכשו/הוסרו)
+        # ANTM -> ELV (שינוי שם)
         all_symbols = [
-            'A', 'AAL', 'AAP', 'ABBV', 'ABC', 'ABMD', 'ABT', 'ACGL', 'ACN',
+            'A', 'AAL', 'AAP', 'ABBV', 'ABT', 'ACGL', 'ACN',
             'ADBE', 'ADI', 'ADM', 'ADP', 'ADSK', 'AEE', 'AEP', 'AES', 'AFL',
             'A', 'AGCO', 'AGL', 'AIG', 'AIV', 'AIZ', 'AJG', 'AKAM', 'ALB',
             'ALGN', 'ALK', 'ALL', 'ALLE', 'ALLY', 'ALNY', 'AMAT', 'AMCR', 'AMD',
-            'AME', 'AMED', 'AMGN', 'AMP', 'AMT', 'AMZN', 'ANET', 'ANSS', 'ANTM',
-            'AON', 'AOS', 'APA', 'APD', 'APH', 'APTV', 'ARE', 'ARES', 'ARG',
-            'ATO', 'ATVI', 'AVB', 'AVGO', 'AVY', 'AWK', 'AXON', 'AXP', 'AZO',
-            'BA', 'BALL', 'BANC', 'BBWI', 'BBY', 'BDX', 'BEN', 'BF-B', 'BIIB',
-            'BIO', 'BILL', 'BK', 'BKR', 'BLK', 'BLKB', 'BLL', 'BMY', 'BNTX',
+            'AME', 'AMGN', 'AMP', 'AMT', 'AMZN', 'ANET', 'ANSS', 'AON', 'AOS',
+            'APA', 'APD', 'APH', 'APTV', 'ARE', 'ARES', 'ATO', 'AVB', 'AVGO',
+            'AVY', 'AWK', 'AXON', 'AXP', 'AZO', 'BA', 'BALL', 'BANC', 'BBWI',
+            'BBY', 'BDX', 'BEN', 'BF-B', 'BIIB', 'BIO', 'BILL', 'BK', 'BKR',
+            'BLK', 'BLKB', 'BMY', 'BNTX',
             'BOKF', 'BR', 'BRK-B', 'BRO', 'BSX', 'BWA', 'BXP', 'C', 'CAG',
             'CAH', 'CALM', 'CALX', 'CARR', 'CAT', 'CB', 'CBOE', 'CBRE', 'CCK',
-            'CDAY', 'CDNS', 'CDW', 'CE', 'CERN', 'CF', 'CFG', 'CHD', 'CHRW',
+            'CDAY', 'CDNS', 'CDW', 'CE', 'CF', 'CFG', 'CHD', 'CHRW',
             'CHTR', 'CI', 'CINF', 'CL', 'CLH', 'CLX', 'CMA', 'CMCSA', 'CME',
             'CMI', 'CMS', 'CNC', 'CNP', 'COF', 'COHR', 'COIN', 'COKE', 'COLB',
             'COO', 'COP', 'COST', 'CPB', 'CPRT', 'CPT', 'CR', 'CRL', 'CRM',
@@ -217,6 +219,7 @@ class DataFetcher:
             'UFPI', 'UGI', 'UHAL', 'UHS', 'UI', 'ULTA', 'UMBF', 'UNF', 'UNFI',
             'UNH', 'UNM', 'UNP', 'UPS', 'URI', 'USB', 'USFD', 'USLM', 'USNA',
             'USPH', 'UTHR', 'UTZ', 'UVV', 'V', 'VAC', 'VALE', 'VAPO', 'VFC',
+            'ELV',  # Elevance Health (לשעבר ANTM)
             'VICI', 'VICR', 'VIPS', 'VIST', 'VITL', 'VIVO', 'VKTX', 'VLO',
             'VMC', 'VMI', 'VNT', 'VOD', 'VRSK', 'VRSN', 'VRT', 'VRTX', 'VSAT',
             'VSCO', 'VSH', 'VST', 'VSTO', 'VTR', 'VTRS', 'VTYX', 'VZ', 'W',
@@ -284,7 +287,17 @@ class DataFetcher:
             df = ticker.history(start=start_date, end=end_date)
             
             if df.empty:
-                print(f"אין נתונים עבור {symbol}")
+                # בדיקה אם המניה הוסרה מהמסחר
+                info = ticker.info
+                if 'longName' not in info or info.get('quoteType') == 'DELISTED':
+                    print(f"⚠️ {symbol}: מניה הוסרה מהמסחר (delisted)")
+                else:
+                    print(f"⚠️ {symbol}: אין נתונים זמינים")
+                return None
+            
+            # בדיקה שיש לפחות כמה שורות נתונים
+            if len(df) < 10:
+                print(f"⚠️ {symbol}: נתונים מועטים מדי ({len(df)} ימים)")
                 return None
             
             # שמירה בקאש
@@ -294,7 +307,11 @@ class DataFetcher:
             return df
             
         except Exception as e:
-            print(f"שגיאה בהורדת {symbol}: {e}")
+            error_msg = str(e).lower()
+            if 'delisted' in error_msg or 'no timezone' in error_msg or 'no price data' in error_msg:
+                print(f"⚠️ {symbol}: מניה הוסרה מהמסחר או אין נתונים")
+            else:
+                print(f"⚠️ שגיאה בהורדת {symbol}: {e}")
             return None
     
     def download_multiple_stocks(self,
@@ -336,14 +353,23 @@ class DataFetcher:
                 time.sleep(0.1)
         
         if failed_symbols:
-            print(f"\nנכשלו {len(failed_symbols)} מניות: {failed_symbols[:10]}...")
+            print(f"\n⚠️ נכשלו {len(failed_symbols)} מניות (הוסרו מהמסחר או אין נתונים)")
+            if len(failed_symbols) <= 20:
+                print(f"   מניות שנכשלו: {', '.join(failed_symbols)}")
+            else:
+                print(f"   מניות שנכשלו (20 ראשונות): {', '.join(failed_symbols[:20])}")
         
         # יצירת DataFrame אחד גדול
         combined_df = pd.DataFrame(all_data)
         
-        print(f"\nהושלמה הורדה של {len(combined_df.columns)//2} מניות")
-        print(f"תקופה: {combined_df.index.min()} עד {combined_df.index.max()}")
-        print(f"מספר ימים: {len(combined_df)}")
+        if combined_df.empty:
+            print("\n❌ לא הורדו נתונים עבור אף מניה")
+            return None
+        
+        successful_count = len(combined_df.columns) // 2
+        print(f"\n✅ הושלמה הורדה של {successful_count} מניות מתוך {len(symbols)}")
+        print(f"   תקופה: {combined_df.index.min()} עד {combined_df.index.max()}")
+        print(f"   מספר ימים: {len(combined_df)}")
         
         return combined_df
     
