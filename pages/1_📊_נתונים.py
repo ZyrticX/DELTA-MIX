@@ -141,6 +141,186 @@ else:
 
 st.markdown("---")
 
+# סקציה חדשה: צפייה בנתוני מניה ספציפית
+if cached_stocks:
+    st.markdown("""
+    <div style='direction: rtl; text-align: right;'>
+        <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>🔍 צפייה בנתוני מניה</h2>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    selected_stock = st.selectbox(
+        "בחר מניה לצפייה בנתונים",
+        options=cached_stocks,
+        help="בחר מניה מהרשימה כדי לצפות בנתונים המלאים שלה",
+        key="stock_viewer_select"
+    )
+    
+    if selected_stock:
+        cache_dir = "data_cache"
+        
+        # מציאת הקובץ האחרון של המניה
+        stock_files = []
+        for filename in os.listdir(cache_dir):
+            if filename.startswith(f"{selected_stock}_") and filename.endswith('.pkl'):
+                filepath = os.path.join(cache_dir, filename)
+                file_mtime = os.path.getmtime(filepath)
+                stock_files.append((filename, filepath, file_mtime))
+        
+        if stock_files:
+            # מיון לפי תאריך עדכון - הקובץ האחרון ראשון
+            stock_files.sort(key=lambda x: x[2], reverse=True)
+            filename, filepath, _ = stock_files[0]
+            
+            try:
+                with open(filepath, 'rb') as f:
+                    df = pickle.load(f)
+                
+                if df is not None and not df.empty:
+                    # הצגת מידע כללי
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("מספר ימים", len(df))
+                    
+                    with col2:
+                        st.metric("תאריך התחלה", df.index.min().strftime('%Y-%m-%d'))
+                    
+                    with col3:
+                        st.metric("תאריך סיום", df.index.max().strftime('%Y-%m-%d'))
+                    
+                    with col4:
+                        days_diff = (df.index.max() - df.index.min()).days
+                        st.metric("טווח (ימים)", days_diff)
+                    
+                    st.markdown("---")
+                    
+                    # הצגת טבלת נתונים
+                    st.markdown("""
+                    <div style='direction: rtl; text-align: right;'>
+                        <h3 style='color: #0066CC; margin-top: 1rem; margin-bottom: 1rem;'>📋 נתונים מלאים</h3>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # עיצוב DataFrame להצגה
+                    display_df = df.copy()
+                    display_df.index.name = 'תאריך'
+                    
+                    # עיגול מספרים
+                    numeric_cols = display_df.select_dtypes(include=['float64', 'int64']).columns
+                    display_df[numeric_cols] = display_df[numeric_cols].round(2)
+                    
+                    st.dataframe(display_df, use_container_width=True, height=400)
+                    
+                    # סטטיסטיקות
+                    st.markdown("""
+                    <div style='direction: rtl; text-align: right;'>
+                        <h3 style='color: #0066CC; margin-top: 1rem; margin-bottom: 1rem;'>📊 סטטיסטיקות</h3>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    stats_df = df.describe()
+                    stats_df.index.name = 'סטטיסטיקה'
+                    st.dataframe(stats_df, use_container_width=True)
+                    
+                    # גרפים
+                    st.markdown("""
+                    <div style='direction: rtl; text-align: right;'>
+                        <h3 style='color: #0066CC; margin-top: 1rem; margin-bottom: 1rem;'>📈 גרפים</h3>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # בחירת עמודות לגרף
+                    available_cols = df.columns.tolist()
+                    chart_cols = st.multiselect(
+                        "בחר עמודות להצגה בגרף",
+                        options=available_cols,
+                        default=[col for col in ['Close', 'Adj Close', 'Volume'] if col in available_cols][:2]
+                    )
+                    
+                    if chart_cols:
+                        import plotly.graph_objects as go
+                        from plotly.subplots import make_subplots
+                        
+                        fig = make_subplots(
+                            rows=len(chart_cols),
+                            cols=1,
+                            shared_xaxes=True,
+                            vertical_spacing=0.05,
+                            subplot_titles=chart_cols
+                        )
+                        
+                        for i, col in enumerate(chart_cols):
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=df.index,
+                                    y=df[col],
+                                    mode='lines',
+                                    name=col,
+                                    line=dict(width=2)
+                                ),
+                                row=i+1,
+                                col=1
+                            )
+                        
+                        fig.update_layout(
+                            height=300 * len(chart_cols),
+                            title_text=f"נתוני {selected_stock}",
+                            showlegend=True,
+                            hovermode='x unified'
+                        )
+                        
+                        fig.update_xaxes(title_text="תאריך")
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    # הורדת נתונים
+                    st.markdown("---")
+                    st.markdown("""
+                    <div style='direction: rtl; text-align: right;'>
+                        <h3 style='color: #0066CC; margin-top: 1rem; margin-bottom: 1rem;'>💾 הורדת נתונים</h3>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # הורדת CSV
+                        csv_data = df.to_csv()
+                        st.download_button(
+                            "📥 הורד CSV",
+                            csv_data,
+                            f"{selected_stock}_data_{datetime.now().strftime('%Y%m%d')}.csv",
+                            "text/csv",
+                            use_container_width=True
+                        )
+                    
+                    with col2:
+                        # הורדת Excel
+                        try:
+                            from io import BytesIO
+                            output = BytesIO()
+                            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                                df.to_excel(writer, sheet_name=selected_stock)
+                            excel_data = output.getvalue()
+                            
+                            st.download_button(
+                                "📥 הורד Excel",
+                                excel_data,
+                                f"{selected_stock}_data_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True
+                            )
+                        except:
+                            st.info("💡 הורדת Excel דורשת התקנת openpyxl")
+                    
+            except Exception as e:
+                st.error(f"❌ שגיאה בטעינת נתוני {selected_stock}: {str(e)}")
+        else:
+            st.warning(f"⚠️ לא נמצאו קבצים עבור {selected_stock}")
+
+st.markdown("---")
+
 # סקציה 2: טעינת נתונים
 st.markdown("""
 <div style='direction: rtl; text-align: right;'>
