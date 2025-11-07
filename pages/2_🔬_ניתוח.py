@@ -625,4 +625,45 @@ with col2:
 if st.session_state.analysis_done:
     st.markdown("---")
     st.success("✅ ניתוח הושלם בהצלחה! עבור לעמוד 'תוצאות' כדי לראות את התוצאות המפורטות.")
+    
+    # בדיקת איכות הקורלציות
+    if hasattr(st.session_state, 'engine') and hasattr(st.session_state, 'results'):
+        validation = st.session_state.engine.validate_correlations(st.session_state.results)
+        
+        # הצגת מדדי איכות
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                "ממוצע קורלציות משולבות",
+                f"{validation['average_correlation']:.3f}",
+                help="ממוצע כל הקורלציות המשולבות החיוביות"
+            )
+        
+        with col2:
+            st.metric(
+                "חציון קורלציות",
+                f"{validation['median_correlation']:.3f}",
+                help="חציון הקורלציות המשולבות"
+            )
+        
+        with col3:
+            very_high = validation['distribution']['very_high']
+            total = sum(validation['distribution'].values())
+            if total > 0:
+                pct = (very_high / total) * 100
+                st.metric(
+                    "קורלציות מעל 0.9",
+                    f"{very_high:,}",
+                    delta=f"{pct:.1f}%"
+                )
+        
+        # אזהרה אם יש קורלציות חשודות
+        if validation['suspicious_high']:
+            st.warning(f"""
+            ⚠️ **זוהו {len(validation['suspicious_high'])} מניות עם קורלציה מעל 0.95**
+            
+            זה עשוי להצביע על בעיה בחישוב. קורלציות מעל 0.95 הן נדירות מאוד בשוק האמיתי.
+            עבור לעמוד 'תוצאות' לפרטים נוספים.
+            """)
 

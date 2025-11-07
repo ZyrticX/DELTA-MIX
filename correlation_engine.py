@@ -37,30 +37,52 @@ class CorrelationEngine:
     def calculate_rolling_correlation(self, 
                                      series: pd.Series, 
                                      reference: pd.Series,
-                                     window: int) -> pd.Series:
+                                     window: int,
+                                     use_returns: bool = True) -> pd.Series:
         """
         חישוב קורלציה גלילית - בדיוק כמו CORREL+OFFSET באקסל
         
         משכפל את הנוסחה:
         =CORREL(OFFSET(D2,0,0,פרמטרים!$E$2,1),
                 OFFSET(פרמטרים!$C$2,0,0,פרמטרים!$E$2,1))
+        
+        Args:
+            series: סדרת נתונים של המניה
+            reference: סדרת נתונים של מניית הייחוס
+            window: אורך החלון לחישוב קורלציה
+            use_returns: אם True, מחשב קורלציה על תשואות (אחוזי שינוי)
+                        אם False, מחשב קורלציה על ערכים גולמיים
         """
+        # המרה לתשואות אם נדרש
+        if use_returns:
+            # חישוב תשואות יומיות (percentage change)
+            series_data = series.pct_change()
+            reference_data = reference.pct_change()
+        else:
+            series_data = series
+            reference_data = reference
+        
         correlations = []
         
-        for i in range(len(series)):
-            if i < window - 1:
+        for i in range(len(series_data)):
+            if i < window:
                 # אין מספיק נתונים - החזר 0
                 correlations.append(0)
             else:
-                # קח window ערכים אחורה (כולל הערך הנוכחי)
-                stock_window = series.iloc[i-window+1:i+1]
-                ref_window = reference.iloc[i-window+1:i+1]
+                # קח window ערכים אחורה (לא כולל הערך הנוכחי כי pct_change עושה NaN בראשון)
+                stock_window = series_data.iloc[i-window+1:i+1]
+                ref_window = reference_data.iloc[i-window+1:i+1]
                 
                 # חישוב קורלציה
                 if len(stock_window) == window and len(ref_window) == window:
-                    # בדוק שאין NaN
-                    if stock_window.notna().all() and ref_window.notna().all():
-                        corr = stock_window.corr(ref_window)
+                    # הסר NaN (במיוחד מה-pct_change הראשון)
+                    valid_mask = stock_window.notna() & ref_window.notna()
+                    stock_clean = stock_window[valid_mask]
+                    ref_clean = ref_window[valid_mask]
+                    
+                    # צריך לפחות חצי מהנתונים להיות תקינים
+                    if len(stock_clean) >= window * 0.5:
+                        corr = stock_clean.corr(ref_clean)
                         correlations.append(corr if not np.isnan(corr) else 0)
                     else:
                         correlations.append(0)
@@ -94,7 +116,8 @@ class CorrelationEngine:
             price_corr = self.calculate_rolling_correlation(
                 stock_prices, 
                 reference_price, 
-                self.block_length
+                self.block_length,
+                use_returns=True  # חישוב על תשואות
             )
             price_correlations[symbol] = price_corr
             
@@ -103,7 +126,8 @@ class CorrelationEngine:
             volume_corr = self.calculate_rolling_correlation(
                 stock_volumes,
                 reference_volume,
-                self.block_length
+                self.block_length,
+                use_returns=True  # חישוב על שינויים בנפח
             )
             volume_correlations[symbol] = volume_corr
         
@@ -310,6 +334,61 @@ class CorrelationEngine:
         opportunities.sort(key=lambda x: x['correlation'], reverse=True)
         
         return opportunities
+    
+    def validate_correlations(self, results: Dict) -> Dict:
+        """
+        בדיקת איכות הקורלציות - זיהוי ערכים חשודים
+        
+        Returns:
+            Dict עם מידע על איכות הקורלציות:
+            - suspicious_high: מניות עם קורלציה מעל 0.95
+            - average_correlation: ממוצע כל הקורלציות
+            - median_correlation: חציון הקורלציות
+            - distribution: התפלגות הקורלציות
+        """
+        validation = {
+            'suspicious_high': [],  # קורלציות מעל 0.95
+            'average_correlation': 0,
+            'median_correlation': 0,
+            'distribution': {
+                'low': 0,      # 0-0.3
+                'medium': 0,   # 0.3-0.7
+                'high': 0,     # 0.7-0.9
+                'very_high': 0 # 0.9-1.0
+            }
+        }
+        
+        combined = results['combined_correlations']
+        
+        # חישוב סטטיסטיקות כלליות
+        all_corr_values = []
+        for col in combined.columns:
+            # קח רק ערכים תקינים (לא NaN ולא 0)
+            col_values = combined[col].values
+            valid_values = col_values[(~np.isnan(col_values)) & (col_values > 0)]
+            all_corr_values.extend(valid_values.tolist())
+        
+        if all_corr_values:
+            all_corr_array = np.array(all_corr_values)
+            validation['average_correlation'] = float(np.mean(all_corr_array))
+            validation['median_correlation'] = float(np.median(all_corr_array))
+            
+            # התפלגות
+            validation['distribution']['low'] = int(np.sum((all_corr_array > 0) & (all_corr_array < 0.3)))
+            validation['distribution']['medium'] = int(np.sum((all_corr_array >= 0.3) & (all_corr_array < 0.7)))
+            validation['distribution']['high'] = int(np.sum((all_corr_array >= 0.7) & (all_corr_array < 0.9)))
+            validation['distribution']['very_high'] = int(np.sum(all_corr_array >= 0.9))
+        
+        # מניות עם קורלציה גבוהה מדי
+        for col in combined.columns:
+            max_corr = combined[col].max()
+            if not np.isnan(max_corr) and max_corr > 0.95:
+                validation['suspicious_high'].append({
+                    'symbol': col,
+                    'max_correlation': float(max_corr)
+                })
+        
+        return validation
     
     def calculate_full_correlation_matrix(self,
                                         stock_data: pd.DataFrame,
