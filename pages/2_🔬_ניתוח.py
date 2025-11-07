@@ -305,8 +305,215 @@ with col2:
     המניות יושוו למניית הייחוס כדי לזהות תנועות דומות.
     """)
 
-# כפתור הרצת ניתוח
+# סקציה חדשה: ניתוח קורלציה מלא בין כל המניות
 st.markdown("---")
+st.markdown("""
+<div style='direction: rtl; text-align: right;'>
+    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>🔗 ניתוח קורלציה מלא (כל המניות מול כל המניות)</h2>
+</div>
+""", unsafe_allow_html=True)
+
+st.info("""
+💡 **ניתוח קורלציה מלא** מחשב את הקורלציה בין כל המניות לבין כל המניות האחרות.
+זה מאפשר לזהות מניות שתנועותיהן קשורות זו לזו, גם ללא מניית ייחוס.
+
+**שימו לב:** חישוב זה יכול לקחת זמן עבור 500 מניות (250,000 קורלציות).
+""")
+
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    full_analysis_field = st.selectbox(
+        "שדה לניתוח קורלציה מלא",
+        options=['Close', 'Adj Close', 'Volume'],
+        index=0,
+        format_func=lambda x: {
+            'Close': 'Close - מחיר סגירה',
+            'Adj Close': 'Adj Close - מחיר סגירה מותאם',
+            'Volume': 'Volume - נפח מסחר'
+        }[x],
+        help="בחר איזה שדה להשתמש לחישוב הקורלציות"
+    )
+    
+    use_rolling = st.checkbox(
+        "השתמש בקורלציה גלילית",
+        value=False,
+        help="אם מסומן, יחושב ממוצע של קורלציות גליליות על חלון זמן"
+    )
+    
+    if use_rolling:
+        rolling_window = st.slider(
+            "גודל חלון לקורלציה גלילית",
+            min_value=5,
+            max_value=30,
+            value=15,
+            help="מספר ימים לחלון הקורלציה הגלילית"
+        )
+    else:
+        rolling_window = None
+    
+    top_n_correlations = st.number_input(
+        "מספר הקורלציות הגבוהות ביותר להצגה",
+        min_value=10,
+        max_value=200,
+        value=50,
+        step=10,
+        help="כמה מהקורלציות הגבוהות ביותר להציג בטבלה"
+    )
+
+with col2:
+    st.markdown("""
+    <div style='direction: rtl; text-align: right; margin-top: 2rem;'>
+        <h4 style='color: #0066CC; margin-bottom: 1rem;'>פרמטרים</h4>
+        <p style='color: #666; font-size: 0.9rem;'>
+            בחר את השדה לניתוח ואת מספר הקורלציות הגבוהות ביותר שתרצה לראות.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+if st.button("🔗 הרץ ניתוח קורלציה מלא", use_container_width=True, type="primary", key="run_full_correlation"):
+    if st.session_state.stock_data is None or st.session_state.stock_data.empty:
+        st.error("❌ אין נתונים נטענים. יש לטעון נתונים קודם.")
+    else:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        try:
+            # יצירת מנוע
+            engine = CorrelationEngine(params)
+            
+            # חישוב מטריצת קורלציה
+            status_text.text("🔗 מחשב מטריצת קורלציה מלאה...")
+            progress_bar.progress(20)
+            
+            if use_rolling and rolling_window:
+                correlation_matrix = engine.calculate_rolling_correlation_matrix(
+                    st.session_state.stock_data,
+                    field=full_analysis_field,
+                    window=rolling_window
+                )
+            else:
+                correlation_matrix = engine.calculate_full_correlation_matrix(
+                    st.session_state.stock_data,
+                    field=full_analysis_field
+                )
+            
+            if correlation_matrix.empty:
+                st.error("❌ לא ניתן לחשב מטריצת קורלציה")
+            else:
+                progress_bar.progress(60)
+                status_text.text("🔍 מוצא קורלציות גבוהות...")
+                
+                # מציאת הקורלציות הגבוהות ביותר
+                top_correlations = engine.find_top_correlations(
+                    correlation_matrix,
+                    top_n=top_n_correlations
+                )
+                
+                progress_bar.progress(80)
+                status_text.text("📊 מציג תוצאות...")
+                
+                # שמירה ב-session state
+                st.session_state.full_correlation_matrix = correlation_matrix
+                st.session_state.top_correlations = top_correlations
+                st.session_state.full_analysis_field = full_analysis_field
+                
+                progress_bar.progress(100)
+                status_text.text("✅ ניתוח קורלציה מלא הושלם!")
+                
+                # הצגת תוצאות
+                st.markdown("---")
+                st.markdown("""
+                <div style='direction: rtl; text-align: right;'>
+                    <h3 style='color: #0066CC; margin-top: 1rem; margin-bottom: 1rem;'>📊 תוצאות ניתוח קורלציה מלא</h3>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.success(f"""
+                ✅ **ניתוח הושלם בהצלחה!**
+                - מטריצת קורלציה: {len(correlation_matrix)} × {len(correlation_matrix)} מניות
+                - סה"כ קורלציות: {len(correlation_matrix) * (len(correlation_matrix) - 1) // 2}
+                - שדה נותח: {full_analysis_field}
+                """)
+                
+                # הצגת הקורלציות הגבוהות ביותר
+                st.markdown("""
+                <div style='direction: rtl; text-align: right;'>
+                    <h4 style='color: #0066CC; margin-top: 1rem; margin-bottom: 1rem;'>🏆 הקורלציות הגבוהות ביותר</h4>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.dataframe(top_correlations, use_container_width=True, height=400)
+                
+                # הורדת תוצאות
+                st.markdown("---")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # הורדת טבלת קורלציות גבוהות
+                    csv_top = top_correlations.to_csv(index=False)
+                    st.download_button(
+                        "📥 הורד קורלציות גבוהות (CSV)",
+                        csv_top,
+                        f"top_correlations_{full_analysis_field}_{datetime.now().strftime('%Y%m%d')}.csv",
+                        "text/csv",
+                        use_container_width=True
+                    )
+                
+                with col2:
+                    # הורדת מטריצת קורלציה מלאה
+                    csv_matrix = correlation_matrix.to_csv()
+                    st.download_button(
+                        "📥 הורד מטריצת קורלציה מלאה (CSV)",
+                        csv_matrix,
+                        f"correlation_matrix_{full_analysis_field}_{datetime.now().strftime('%Y%m%d')}.csv",
+                        "text/csv",
+                        use_container_width=True
+                    )
+                
+                # הצגת heatmap (אם יש plotly)
+                try:
+                    import plotly.graph_objects as go
+                    import plotly.express as px
+                    
+                    st.markdown("""
+                    <div style='direction: rtl; text-align: right;'>
+                        <h4 style='color: #0066CC; margin-top: 1rem; margin-bottom: 1rem;'>📈 Heatmap של מטריצת קורלציה</h4>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # יצירת heatmap
+                    fig = px.imshow(
+                        correlation_matrix.values,
+                        labels=dict(x="מניה", y="מניה", color="קורלציה"),
+                        x=correlation_matrix.columns,
+                        y=correlation_matrix.index,
+                        color_continuous_scale="RdBu",
+                        aspect="auto"
+                    )
+                    
+                    fig.update_layout(
+                        title=f"מטריצת קורלציה - {full_analysis_field}",
+                        height=800,
+                        width=1000
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.info("💡 Heatmap זמין רק עם plotly מותקן")
+        
+        except Exception as e:
+            st.error(f"❌ שגיאה בניתוח קורלציה מלא: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
+
+# כפתור הרצת ניתוח רגיל
+st.markdown("---")
+st.markdown("""
+<div style='direction: rtl; text-align: right;'>
+    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>📊 ניתוח רגיל (מול מניית ייחוס)</h2>
+</div>
+""", unsafe_allow_html=True)
 
 col1, col2, col3 = st.columns([1, 2, 1])
 

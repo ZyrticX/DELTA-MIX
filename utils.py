@@ -264,4 +264,10 @@ def initialize_session_state():
         st.session_state.symbols = []
     if 'engine' not in st.session_state:
         st.session_state.engine = None
+    if 'full_correlation_matrix' not in st.session_state:
+        st.session_state.full_correlation_matrix = None
+    if 'top_correlations' not in st.session_state:
+        st.session_state.top_correlations = None
+    if 'full_analysis_field' not in st.session_state:
+        st.session_state.full_analysis_field = None
 

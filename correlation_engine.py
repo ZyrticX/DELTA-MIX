@@ -310,6 +310,139 @@ class CorrelationEngine:
         opportunities.sort(key=lambda x: x['correlation'], reverse=True)
         
         return opportunities
+    
+    def calculate_full_correlation_matrix(self,
+                                        stock_data: pd.DataFrame,
+                                        field: str = 'Close') -> pd.DataFrame:
+        """
+        חישוב מטריצת קורלציה מלאה בין כל המניות
+        
+        Args:
+            stock_data: DataFrame עם MultiIndex (symbol, field)
+            field: השדה לחישוב קורלציה ('Close', 'Adj Close', 'Volume')
+        
+        Returns:
+            DataFrame עם מטריצת קורלציה - כל מניה מול כל מניה
+        """
+        # חילוץ כל המניות
+        symbols = stock_data.columns.get_level_values(0).unique()
+        
+        # יצירת DataFrame של השדה הנבחר לכל המניות
+        data_dict = {}
+        for symbol in symbols:
+            # נסה את השדה המבוקש
+            if (symbol, field) in stock_data.columns:
+                data_dict[symbol] = stock_data[(symbol, field)]
+            elif (symbol, 'Close') in stock_data.columns:
+                # נפילה ל-Close אם השדה המבוקש לא קיים
+                data_dict[symbol] = stock_data[(symbol, 'Close')]
+            else:
+                # דלג על מניות ללא נתונים
+                continue
+        
+        if not data_dict:
+            return pd.DataFrame()
+        
+        # יצירת DataFrame
+        data_df = pd.DataFrame(data_dict)
+        
+        # חישוב מטריצת קורלציה
+        correlation_matrix = data_df.corr()
+        
+        return correlation_matrix
+    
+    def calculate_rolling_correlation_matrix(self,
+                                          stock_data: pd.DataFrame,
+                                          field: str = 'Close',
+                                          window: int = 15) -> pd.DataFrame:
+        """
+        חישוב מטריצת קורלציה גלילית - קורלציה על חלון זמן מסוים
+        
+        Args:
+            stock_data: DataFrame עם MultiIndex (symbol, field)
+            field: השדה לחישוב קורלציה
+            window: גודל החלון לחישוב קורלציה
+        
+        Returns:
+            DataFrame עם מטריצת קורלציה ממוצעת על כל התקופה
+        """
+        # חילוץ כל המניות
+        symbols = stock_data.columns.get_level_values(0).unique()
+        
+        # יצירת DataFrame של השדה הנבחר
+        data_dict = {}
+        for symbol in symbols:
+            if (symbol, field) in stock_data.columns:
+                data_dict[symbol] = stock_data[(symbol, field)]
+            elif (symbol, 'Close') in stock_data.columns:
+                data_dict[symbol] = stock_data[(symbol, 'Close')]
+            else:
+                continue
+        
+        if not data_dict:
+            return pd.DataFrame()
+        
+        data_df = pd.DataFrame(data_dict)
+        
+        # חישוב קורלציות גליליות ואז ממוצע
+        correlations_list = []
+        
+        for i in range(window - 1, len(data_df)):
+            window_data = data_df.iloc[i-window+1:i+1]
+            # בדוק שיש מספיק נתונים תקינים
+            valid_data = window_data.dropna()
+            if len(valid_data) >= window * 0.8:  # לפחות 80% מהנתונים תקינים
+                corr_matrix = valid_data.corr()
+                correlations_list.append(corr_matrix)
+        
+        if not correlations_list:
+            # אם אין מספיק נתונים, נחזיר קורלציה רגילה
+            return data_df.corr()
+        
+        # ממוצע של כל המטריצות
+        # נשתמש ב-numpy כדי לחשב ממוצע
+        corr_arrays = [corr.values for corr in correlations_list]
+        avg_corr_array = np.nanmean(corr_arrays, axis=0)
+        avg_correlation = pd.DataFrame(
+            avg_corr_array,
+            index=correlations_list[0].index,
+            columns=correlations_list[0].columns
+        )
+        
+        return avg_correlation
+    
+    def find_top_correlations(self,
+                            correlation_matrix: pd.DataFrame,
+                            top_n: int = 50) -> pd.DataFrame:
+        """
+        מציאת הקורלציות הגבוהות ביותר
+        
+        Args:
+            correlation_matrix: מטריצת קורלציה
+            top_n: מספר הקורלציות הגבוהות ביותר להחזיר
+        
+        Returns:
+            DataFrame עם הקורלציות הגבוהות ביותר
+        """
+        # המרה לרשימת tuples (stock1, stock2, correlation)
+        correlations = []
+        
+        for i, stock1 in enumerate(correlation_matrix.index):
+            for j, stock2 in enumerate(correlation_matrix.columns):
+                if i < j:  # רק חצי מהמטריצה (למנוע כפילויות)
+                    corr_value = correlation_matrix.iloc[i, j]
+                    if not np.isnan(corr_value):
+                        correlations.append({
+                            'מניה 1': stock1,
+                            'מניה 2': stock2,
+                            'קורלציה': corr_value
+                        })
+        
+        # המרה ל-DataFrame ומיון
+        corr_df = pd.DataFrame(correlations)
+        corr_df = corr_df.sort_values('קורלציה', ascending=False)
+        
+        return corr_df.head(top_n)
 
 
 def test_engine():
