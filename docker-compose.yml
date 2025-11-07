@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  streamlit-app:
+    build: .
+    container_name: deltamix-correlation-system
+    ports:
+      - "8501:8501"
+    volumes:
+      # שמירת קאש ונתונים גם אחרי עצירת הקונטיינר
+      - ./data_cache:/app/data_cache
+      - ./daily_results:/app/daily_results
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+

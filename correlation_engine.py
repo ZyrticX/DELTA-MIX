@@ -1,0 +1,354 @@
+"""
+מנוע חישוב קורלציה - משכפל בדיוק את הנוסחאות מהאקסל
+"""
+
+import pandas as pd
+import numpy as np
+from typing import Dict, List, Tuple
+import warnings
+warnings.filterwarnings('ignore')
+
+
+class CorrelationEngine:
+    """
+    מנוע חישוב קורלציות - משכפל בדיוק את הלוגיקה של האקסל
+    """
+    
+    def __init__(self, params: Dict):
+        """
+        אתחול המנוע עם פרמטרים
+        
+        Args:
+            params: מילון פרמטרים:
+                - block_length: אורך בלוק לחישוב קורלציה (15)
+                - significance: סף מובהקות (0.7)
+                - calc_mode: סוג חישוב (1=שער, 2=מחזור, 3=מכפלה)
+                - ma_length: אורך ממוצע נע (10)
+                - threshold: סף מהותיות (0.01)
+        """
+        self.block_length = params.get('block_length', 15)
+        self.significance = params.get('significance', 0.7)
+        self.calc_mode = params.get('calc_mode', 3)
+        self.ma_length = params.get('ma_length', 10)
+        self.threshold = params.get('threshold', 0.01)
+        
+    def calculate_rolling_correlation(self, 
+                                     series: pd.Series, 
+                                     reference: pd.Series,
+                                     window: int) -> pd.Series:
+        """
+        חישוב קורלציה גלילית - בדיוק כמו CORREL+OFFSET באקסל
+        
+        משכפל את הנוסחה:
+        =CORREL(OFFSET(D2,0,0,פרמטרים!$E$2,1),
+                OFFSET(פרמטרים!$C$2,0,0,פרמטרים!$E$2,1))
+        """
+        correlations = []
+        
+        for i in range(len(series)):
+            if i < window - 1:
+                # אין מספיק נתונים - החזר 0
+                correlations.append(0)
+            else:
+                # קח window ערכים אחורה (כולל הערך הנוכחי)
+                stock_window = series.iloc[i-window+1:i+1]
+                ref_window = reference.iloc[i-window+1:i+1]
+                
+                # חישוב קורלציה
+                if len(stock_window) == window and len(ref_window) == window:
+                    # בדוק שאין NaN
+                    if stock_window.notna().all() and ref_window.notna().all():
+                        corr = stock_window.corr(ref_window)
+                        correlations.append(corr if not np.isnan(corr) else 0)
+                    else:
+                        correlations.append(0)
+                else:
+                    correlations.append(0)
+                    
+        return pd.Series(correlations, index=series.index)
+    
+    def calculate_sheet_correlations(self, 
+                                    stock_data: pd.DataFrame,
+                                    reference_price: pd.Series,
+                                    reference_volume: pd.Series) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        חישוב קורלציות עבור גיליונות "שער" ו"מחזור"
+        
+        Returns:
+            (price_corr_df, volume_corr_df)
+        """
+        price_correlations = {}
+        volume_correlations = {}
+        
+        for symbol in stock_data.columns.get_level_values(0).unique():
+            # קורלציית מחיר
+            stock_prices = stock_data[(symbol, 'Close')]
+            price_corr = self.calculate_rolling_correlation(
+                stock_prices, 
+                reference_price, 
+                self.block_length
+            )
+            price_correlations[symbol] = price_corr
+            
+            # קורלציית מחזור
+            stock_volumes = stock_data[(symbol, 'Volume')]
+            volume_corr = self.calculate_rolling_correlation(
+                stock_volumes,
+                reference_volume,
+                self.block_length
+            )
+            volume_correlations[symbol] = volume_corr
+        
+        price_df = pd.DataFrame(price_correlations)
+        volume_df = pd.DataFrame(volume_correlations)
+        
+        return price_df, volume_df
+    
+    def combine_correlations(self,
+                           price_corr: pd.DataFrame,
+                           volume_corr: pd.DataFrame) -> pd.DataFrame:
+        """
+        שילוב קורלציות לפי סוג החישוב
+        
+        משכפל את הנוסחה:
+        =IF(פרמטרים!$G$2=1,שער!M2,
+           IF(פרמטרים!$G$2=2,מחזור!M2,
+              IF(פרמטרים!$G$2=3,
+                 (IF(OR(שער!M2<0,מחזור!M2<0),0,שער!M2*מחזור!M2)),
+                 0)))
+        """
+        combined = pd.DataFrame(index=price_corr.index)
+        
+        for col in price_corr.columns:
+            if self.calc_mode == 1:
+                # רק קורלציית שער
+                combined[col] = price_corr[col]
+            elif self.calc_mode == 2:
+                # רק קורלציית מחזור
+                combined[col] = volume_corr[col]
+            elif self.calc_mode == 3:
+                # מכפלה - רק אם שניהם חיוביים
+                combined[col] = np.where(
+                    (price_corr[col] < 0) | (volume_corr[col] < 0),
+                    0,
+                    price_corr[col] * volume_corr[col]
+                )
+        
+        return combined
+    
+    def calculate_volume_ratio(self,
+                              volumes: pd.DataFrame,
+                              combined_corr: pd.DataFrame) -> pd.DataFrame:
+        """
+        חישוב יחס מחזור לממוצע נע
+        
+        משכפל את הנוסחה:
+        =IF($A2<פרמטרים!$H$2+1,0,
+           IF(C2<פרמטרים!$F$2,0,
+              AVERAGE(OFFSET(M2,-פרמטרים!$H$2,0,פרמטרים!$H$2,1))/M2))
+        """
+        ratio_df = pd.DataFrame(index=volumes.index)
+        
+        for col in volumes.columns:
+            ratios = []
+            
+            for i in range(len(volumes)):
+                # תנאי 1: יש מספיק נתונים היסטוריים
+                if i < self.ma_length:
+                    ratios.append(0)
+                    continue
+                
+                # תנאי 2: הקורלציה עוברת את סף המובהקות
+                if combined_corr[col].iloc[i] < self.significance:
+                    ratios.append(0)
+                    continue
+                
+                # חישוב הממוצע
+                volume_window = volumes[col].iloc[i-self.ma_length:i]
+                avg_volume = volume_window.mean()
+                current_volume = volumes[col].iloc[i]
+                
+                if current_volume > 0:
+                    ratio = avg_volume / current_volume
+                    ratios.append(ratio)
+                else:
+                    ratios.append(0)
+            
+            ratio_df[col] = ratios
+        
+        return ratio_df
+    
+    def filter_opportunities(self, ratio_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        סינון הזדמנויות - ימים שבהם היחס עובר את הסף
+        
+        משכפל את:
+        =COUNTIF(W$2:W$1259,">"&1+פרמטרים!$I$2)
+        """
+        threshold_value = 1 + self.threshold
+        
+        # ספירה לכל מניה
+        opportunities = {}
+        
+        for col in ratio_df.columns:
+            # כמה ימים היחס עובר את הסף
+            count = (ratio_df[col] > threshold_value).sum()
+            opportunities[col] = count
+        
+        return pd.Series(opportunities)
+    
+    def calculate_statistics(self, 
+                            ratio_df: pd.DataFrame) -> Dict:
+        """
+        חישוב סטטיסטיקה מסכמת (שורות 2-4 באקסל)
+        """
+        threshold_value = 1 + self.threshold
+        
+        stats = {}
+        
+        for col in ratio_df.columns:
+            # UP: ימים שעוברים את הסף
+            up_count = (ratio_df[col] > threshold_value).sum()
+            
+            # TOTAL: כל הימים עם קורלציה מובהקת (ratio > 0)
+            total_count = (ratio_df[col] > 0).sum()
+            
+            # DOWN: ימים עם קורלציה מובהקת שלא עוברים את הסף
+            down_count = total_count - up_count
+            
+            stats[col] = {
+                'UP': up_count,
+                'DOWN': down_count,
+                'TOTAL': total_count,
+                'UP_PCT': up_count / total_count if total_count > 0 else 0,
+                'DOWN_PCT': down_count / total_count if total_count > 0 else 0
+            }
+        
+        return stats
+    
+    def run_full_analysis(self,
+                         stock_data: pd.DataFrame,
+                         reference_price: pd.Series,
+                         reference_volume: pd.Series) -> Dict:
+        """
+        הרצה מלאה של כל הניתוח
+        
+        Returns:
+            Dict עם כל התוצאות:
+            - price_correlations
+            - volume_correlations
+            - combined_correlations
+            - volume_ratios
+            - statistics
+            - opportunities (למניות בודדות)
+        """
+        print("שלב 1: חישוב קורלציות שער ומחזור...")
+        price_corr, volume_corr = self.calculate_sheet_correlations(
+            stock_data, reference_price, reference_volume
+        )
+        
+        print("שלב 2: שילוב קורלציות...")
+        combined = self.combine_correlations(price_corr, volume_corr)
+        
+        print("שלב 3: חישוב יחסי מחזור...")
+        # צריך להפיק את נפחי המסחר
+        volumes = pd.DataFrame({
+            col: stock_data[(col, 'Volume')] 
+            for col in stock_data.columns.get_level_values(0).unique()
+        })
+        
+        volume_ratios = self.calculate_volume_ratio(volumes, combined)
+        
+        print("שלב 4: חישוב סטטיסטיקה...")
+        stats = self.calculate_statistics(volume_ratios)
+        
+        print("ניתוח הושלם!")
+        
+        return {
+            'price_correlations': price_corr,
+            'volume_correlations': volume_corr,
+            'combined_correlations': combined,
+            'volume_ratios': volume_ratios,
+            'volumes': volumes,
+            'statistics': stats
+        }
+    
+    def find_today_opportunities(self, results: Dict) -> List[Dict]:
+        """
+        מציאת ההזדמנויות להיום (היום האחרון בנתונים)
+        """
+        volume_ratios = results['volume_ratios']
+        combined_corr = results['combined_correlations']
+        
+        last_idx = volume_ratios.index[-1]
+        threshold_value = 1 + self.threshold
+        
+        opportunities = []
+        
+        for col in volume_ratios.columns:
+            ratio = volume_ratios[col].iloc[-1]
+            corr = combined_corr[col].iloc[-1]
+            
+            # בדוק אם זו הזדמנות
+            if ratio > threshold_value and corr >= self.significance:
+                opportunities.append({
+                    'symbol': col,
+                    'correlation': corr,
+                    'volume_ratio': ratio,
+                    'date': last_idx
+                })
+        
+        # מיון לפי correlation (הגבוה ביותר קודם)
+        opportunities.sort(key=lambda x: x['correlation'], reverse=True)
+        
+        return opportunities
+
+
+def test_engine():
+    """
+    בדיקה בסיסית של המנוע
+    """
+    # יצירת נתונים דמה
+    dates = pd.date_range('2020-01-01', periods=100, freq='D')
+    
+    stock1 = pd.Series(np.random.randn(100).cumsum() + 100, index=dates)
+    stock2 = pd.Series(np.random.randn(100).cumsum() + 50, index=dates)
+    reference = pd.Series(np.random.randn(100).cumsum() + 200, index=dates)
+    
+    # יצירת DataFrame מתוקן
+    stock_data = pd.DataFrame({
+        ('STOCK1', 'Close'): stock1,
+        ('STOCK1', 'Volume'): np.random.randint(1000000, 10000000, 100),
+        ('STOCK2', 'Close'): stock2,
+        ('STOCK2', 'Volume'): np.random.randint(1000000, 10000000, 100)
+    })
+    
+    ref_price = reference
+    ref_volume = pd.Series(np.random.randint(1000000, 10000000, 100), index=dates)
+    
+    # פרמטרים
+    params = {
+        'block_length': 15,
+        'significance': 0.7,
+        'calc_mode': 3,
+        'ma_length': 10,
+        'threshold': 0.01
+    }
+    
+    # הרצה
+    engine = CorrelationEngine(params)
+    results = engine.run_full_analysis(stock_data, ref_price, ref_volume)
+    
+    print("\n=== תוצאות בדיקה ===")
+    print(f"מספר ימים: {len(results['combined_correlations'])}")
+    print(f"מספר מניות: {len(results['statistics'])}")
+    
+    for symbol, stat in results['statistics'].items():
+        print(f"\n{symbol}:")
+        print(f"  UP: {stat['UP']} ({stat['UP_PCT']:.1%})")
+        print(f"  DOWN: {stat['DOWN']} ({stat['DOWN_PCT']:.1%})")
+        print(f"  TOTAL: {stat['TOTAL']}")
+
+
+if __name__ == '__main__':
+    test_engine()

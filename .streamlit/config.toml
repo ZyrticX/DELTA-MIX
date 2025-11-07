@@ -1,0 +1,40 @@
+[server]
+# הגדרות שרת ל-production
+headless = true
+port = 8501
+address = "0.0.0.0"
+enableCORS = false
+enableXsrfProtection = false
+maxUploadSize = 200
+maxMessageSize = 200
+
+[browser]
+# הגדרות דפדפן
+gatherUsageStats = false
+serverAddress = "localhost"
+serverPort = 8501
+
+[theme]
+# ערכת נושא (אופציונלי)
+primaryColor = "#0066CC"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F8FF"
+textColor = "#262730"
+font = "sans serif"
+
+[runner]
+# הגדרות הרצה
+magicEnabled = true
+installTracer = false
+fixMatplotlib = true
+
+[client]
+# הגדרות לקוח
+showErrorDetails = true
+toolbarMode = "minimal"
+
+[ui]
+# הגדרות ממשק
+hideTopBar = false
+hideSidebarNav = false
+
