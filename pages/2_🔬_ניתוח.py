@@ -238,6 +238,44 @@ with col2:
         help="בחר איזה שדה מחיר להשתמש לחישוב קורלציות מחיר"
     )
 
+st.markdown("---")
+
+# אופציה לחישוב קורלציות לאורך זמן
+st.markdown("""
+<div style='direction: rtl; text-align: right;'>
+    <h3 style='color: #0066CC; margin-top: 1rem;'>⏱️ קורלציות לאורך זמן</h3>
+</div>
+""", unsafe_allow_html=True)
+
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    calculate_over_time = st.checkbox(
+        "חשב קורלציות לאורך זמן (Rolling Correlation)",
+        value=False,
+        help="חישוב קורלציות גלילית לכל תאריך - מראה איך הקורלציות משתנות לאורך זמן"
+    )
+
+with col2:
+    if calculate_over_time:
+        rolling_window = st.number_input(
+            "גודל חלון (ימים)",
+            min_value=10,
+            max_value=100,
+            value=30,
+            help="מספר ימים לחישוב הקורלציה הגלילית"
+        )
+    else:
+        rolling_window = None
+
+if calculate_over_time:
+    st.info("""
+    💡 **חישוב קורלציות לאורך זמן:**
+    - לכל תאריך, המערכת תחשב קורלציה בין כל זוג מניות על בסיס החלון הנבחר
+    - זה מאפשר לראות איך הקורלציות משתנות לאורך זמן
+    - **שימו לב:** חישוב זה לוקח זמן רב יותר
+    """)
+
 # פרמטרים
 params = {
     'block_length': block_length,
@@ -274,396 +312,214 @@ st.info(f"""
 - תקופה: {st.session_state.stock_data.index.min().strftime('%Y-%m-%d') if st.session_state.stock_data is not None else 'לא זמין'} עד {st.session_state.stock_data.index.max().strftime('%Y-%m-%d') if st.session_state.stock_data is not None else 'לא זמין'}
 """)
 
-# הגדרת מניית ייחוס
+
+# כפתור הרצת ניתוח 500×500
 st.markdown("---")
 st.markdown("""
 <div style='direction: rtl; text-align: right;'>
-    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>📊 מניית ייחוס</h2>
-</div>
-""", unsafe_allow_html=True)
-
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    reference_symbol = st.text_input(
-        "סימול מניית ייחוס",
-        value="SPY",
-        help="מניית ייחוס לחישוב קורלציות (ברירת מחדל: SPY = S&P 500 ETF)"
-    )
-    
-    reference_start_date = st.date_input(
-        "תאריך התחלה למניית ייחוס",
-        value=datetime(2012, 1, 1),
-        min_value=datetime(2000, 1, 1),
-        max_value=datetime.now(),
-        help="תאריך התחלה להורדת נתוני מניית הייחוס"
-    )
-
-with col2:
-    st.info("""
-    **מניית ייחוס** משמשת כבסיס לחישוב הקורלציות.
-    
-    המניות יושוו למניית הייחוס כדי לזהות תנועות דומות.
-    """)
-
-# סקציה חדשה: ניתוח קורלציה מלא בין כל המניות
-st.markdown("---")
-st.markdown("""
-<div style='direction: rtl; text-align: right;'>
-    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>🔗 ניתוח קורלציה מלא (כל המניות מול כל המניות)</h2>
+    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>🚀 הרצת ניתוח קורלציה 500×500</h2>
 </div>
 """, unsafe_allow_html=True)
 
 st.info("""
-💡 **ניתוח קורלציה מלא** מחשב את הקורלציה בין כל המניות לבין כל המניות האחרות.
-זה מאפשר לזהות מניות שתנועותיהן קשורות זו לזו, גם ללא מניית ייחוס.
+💡 **המערכת תחשב קורלציות בין כל המניות**
 
-**שימו לב:** חישוב זה יכול לקחת זמן עבור 500 מניות (250,000 קורלציות).
+📊 סה"כ חישובים: מספר מניות × מספר מניות
+
+⏱️ זמן משוער: 5-10 דקות (תלוי במחשב ובמספר המניות)
 """)
 
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    full_analysis_field = st.selectbox(
-        "שדה לניתוח קורלציה מלא",
-        options=['Close', 'Adj Close', 'Volume'],
-        index=0,
-        format_func=lambda x: {
-            'Close': 'Close - מחיר סגירה',
-            'Adj Close': 'Adj Close - מחיר סגירה מותאם',
-            'Volume': 'Volume - נפח מסחר'
-        }[x],
-        help="בחר איזה שדה להשתמש לחישוב הקורלציות"
-    )
-    
-    use_rolling = st.checkbox(
-        "השתמש בקורלציה גלילית",
-        value=False,
-        help="אם מסומן, יחושב ממוצע של קורלציות גליליות על חלון זמן"
-    )
-    
-    if use_rolling:
-        rolling_window = st.slider(
-            "גודל חלון לקורלציה גלילית",
-            min_value=5,
-            max_value=30,
-            value=15,
-            help="מספר ימים לחלון הקורלציה הגלילית"
-        )
-    else:
-        rolling_window = None
-    
-    top_n_correlations = st.number_input(
-        "מספר הקורלציות הגבוהות ביותר להצגה",
-        min_value=10,
-        max_value=200,
-        value=50,
-        step=10,
-        help="כמה מהקורלציות הגבוהות ביותר להציג בטבלה"
-    )
+col1, col2, col3 = st.columns([1, 2, 1])
 
 with col2:
-    st.markdown("""
-    <div style='direction: rtl; text-align: right; margin-top: 2rem;'>
-        <h4 style='color: #0066CC; margin-bottom: 1rem;'>פרמטרים</h4>
-        <p style='color: #666; font-size: 0.9rem;'>
-            בחר את השדה לניתוח ואת מספר הקורלציות הגבוהות ביותר שתרצה לראות.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-if st.button("🔗 הרץ ניתוח קורלציה מלא", use_container_width=True, type="primary", key="run_full_correlation"):
-    if st.session_state.stock_data is None or st.session_state.stock_data.empty:
-        st.error("❌ אין נתונים נטענים. יש לטעון נתונים קודם.")
-    else:
-        # הערכת זמן לפני תחילת החישוב
-        num_stocks = len(st.session_state.symbols) if st.session_state.symbols else 0
-        if num_stocks > 0:
-            # הערכת זמן משוערת (בערך 0.001 שניות למניה למניה)
-            estimated_time = (num_stocks * num_stocks * 0.001) / 60  # בדקות
-            if use_rolling:
-                estimated_time *= 2  # קורלציה גלילית לוקחת יותר זמן
-            
-            if estimated_time > 1:
-                st.info(f"⏱️ **הערכת זמן:** כ-{estimated_time:.1f} דקות עבור {num_stocks} מניות")
-            else:
-                st.info(f"⏱️ **הערכת זמן:** כ-{estimated_time*60:.0f} שניות עבור {num_stocks} מניות")
+    if st.button("▶️ הרץ ניתוח 500×500", use_container_width=True, type="primary"):
+        # בדיקת נתונים
+        if st.session_state.stock_data is None or st.session_state.stock_data.empty:
+            st.error("❌ אין נתונים נטענים. יש לטעון נתונים קודם בעמוד 'נתונים'.")
+            st.stop()
         
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        # הכנות
+        num_stocks = len(st.session_state.symbols)
+        total_correlations = num_stocks * num_stocks
+        
+        st.markdown("---")
+        st.markdown(f"""
+        <div style='direction: rtl; text-align: right;'>
+            <h3 style='color: #0066CC;'>🔄 מריץ חישוב...</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Progress Bar מספרי
+        progress_container = st.container()
+        with progress_container:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            counter_text = st.empty()
+        
         time_start = time.time()
         
         try:
             # יצירת מנוע
             engine = CorrelationEngine(params)
             
-            # חישוב מטריצת קורלציה
-            status_text.text("🔗 מחשב מטריצת קורלציה מלאה...")
-            progress_bar.progress(20)
+            # חישוב מטריצות 500×500
+            status_text.text("📊 שלב 1/3: מחשב קורלציות מחיר (Adj Close)...")
+            counter_text.markdown(f"**חישובים: 0 / {total_correlations:,}**")
+            progress_bar.progress(0)
             
-            matrix_start = time.time()
-            if use_rolling and rolling_window:
-                correlation_matrix = engine.calculate_rolling_correlation_matrix(
+            # חישוב קורלציות מחיר
+            price_matrix_start = time.time()
+            price_matrix = engine.calculate_full_correlation_matrix(
+                st.session_state.stock_data,
+                field='Adj Close'
+            )
+            price_matrix_time = time.time() - price_matrix_start
+            
+            # עדכון
+            progress_bar.progress(33)
+            counter_text.markdown(f"**חישובים: {total_correlations // 3:,} / {total_correlations:,}** ✅")
+            
+            # חישוב קורלציות נפח
+            status_text.text("📊 שלב 2/3: מחשב קורלציות נפח (Volume)...")
+            volume_matrix_start = time.time()
+            volume_matrix = engine.calculate_full_correlation_matrix(
+                st.session_state.stock_data,
+                field='Volume'
+            )
+            volume_matrix_time = time.time() - volume_matrix_start
+            
+            # עדכון
+            progress_bar.progress(66)
+            counter_text.markdown(f"**חישובים: {total_correlations * 2 // 3:,} / {total_correlations:,}** ✅")
+            
+            # שילוב קורלציות
+            status_text.text("📊 שלב 3/3: משלב קורלציות...")
+            combine_start = time.time()
+            
+            # יצירת מטריצה משולבת לפי calc_mode
+            if params['calc_mode'] == 1:
+                # רק מחיר
+                combined_matrix = price_matrix.copy()
+            elif params['calc_mode'] == 2:
+                # רק נפח
+                combined_matrix = volume_matrix.copy()
+            elif params['calc_mode'] == 3:
+                # משולב - מכפלה רק אם שתיהן חיוביות
+                combined_matrix = pd.DataFrame(
+                    index=price_matrix.index,
+                    columns=price_matrix.columns
+                )
+                
+                for i in price_matrix.index:
+                    for j in price_matrix.columns:
+                        price_corr = price_matrix.loc[i, j]
+                        volume_corr = volume_matrix.loc[i, j]
+                        
+                        if price_corr > 0 and volume_corr > 0:
+                            combined_matrix.loc[i, j] = price_corr * volume_corr
+                        else:
+                            combined_matrix.loc[i, j] = 0
+            
+            combine_time = time.time() - combine_start
+            
+            # מציאת קורלציות גבוהות
+            status_text.text("🔍 מוצא קורלציות גבוהות...")
+            top_correlations = engine.find_top_correlations(combined_matrix, top_n=100)
+            
+            # חישוב קורלציות לאורך זמן (אם מסומן)
+            if calculate_over_time:
+                progress_bar.progress(70)
+                status_text.text("⏱️ שלב 4/4: מחשב קורלציות לאורך זמן...")
+                counter_text.markdown(f"**מחשב rolling correlations עם חלון של {rolling_window} ימים...**")
+                
+                rolling_start = time.time()
+                
+                # חישוב rolling correlations למחיר
+                price_rolling = engine.calculate_rolling_correlation_over_time(
                     st.session_state.stock_data,
-                    field=full_analysis_field,
+                    field='Adj Close',
                     window=rolling_window
                 )
-            else:
-                correlation_matrix = engine.calculate_full_correlation_matrix(
+                
+                # חישוב rolling correlations לנפח
+                volume_rolling = engine.calculate_rolling_correlation_over_time(
                     st.session_state.stock_data,
-                    field=full_analysis_field
+                    field='Volume',
+                    window=rolling_window
                 )
-            matrix_time = time.time() - matrix_start
-            
-            if correlation_matrix.empty:
-                st.error("❌ לא ניתן לחשב מטריצת קורלציה")
+                
+                rolling_time = time.time() - rolling_start
+                
+                # שמירה
+                st.session_state.price_rolling_correlations = price_rolling
+                st.session_state.volume_rolling_correlations = volume_rolling
+                st.session_state.rolling_window = rolling_window
             else:
-                progress_bar.progress(60)
-                status_text.text("🔍 מוצא קורלציות גבוהות...")
-                
-                # מציאת הקורלציות הגבוהות ביותר
-                top_start = time.time()
-                top_correlations = engine.find_top_correlations(
-                    correlation_matrix,
-                    top_n=top_n_correlations
-                )
-                top_time = time.time() - top_start
-                
-                progress_bar.progress(80)
-                status_text.text("📊 מציג תוצאות...")
-                
-                # שמירה ב-session state
-                st.session_state.full_correlation_matrix = correlation_matrix
-                st.session_state.top_correlations = top_correlations
-                st.session_state.full_analysis_field = full_analysis_field
-                
-                total_time = time.time() - time_start
-                
-                progress_bar.progress(100)
-                status_text.text("✅ ניתוח קורלציה מלא הושלם!")
-                
-                # הצגת זמן חישוב
-                st.success(f"""
-                ⏱️ **זמן חישוב:**
-                - מטריצת קורלציה: {matrix_time:.2f} שניות
-                - מציאת קורלציות גבוהות: {top_time:.2f} שניות
-                - **סה"כ: {total_time:.2f} שניות ({total_time/60:.2f} דקות)**
-                """)
-                
-                # הצגת תוצאות
-                st.markdown("---")
-                st.markdown("""
-                <div style='direction: rtl; text-align: right;'>
-                    <h3 style='color: #0066CC; margin-top: 1rem; margin-bottom: 1rem;'>📊 תוצאות ניתוח קורלציה מלא</h3>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.success(f"""
-                ✅ **ניתוח הושלם בהצלחה!**
-                - מטריצת קורלציה: {len(correlation_matrix)} × {len(correlation_matrix)} מניות
-                - סה"כ קורלציות: {len(correlation_matrix) * (len(correlation_matrix) - 1) // 2:,}
-                - שדה נותח: {full_analysis_field}
-                - ⏱️ זמן חישוב: {total_time:.2f} שניות ({total_time/60:.2f} דקות)
-                """)
-                
-                # הצגת הקורלציות הגבוהות ביותר
-                st.markdown("""
-                <div style='direction: rtl; text-align: right;'>
-                    <h4 style='color: #0066CC; margin-top: 1rem; margin-bottom: 1rem;'>🏆 הקורלציות הגבוהות ביותר</h4>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.dataframe(top_correlations, use_container_width=True, height=400)
-                
-                # הורדת תוצאות
-                st.markdown("---")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    # הורדת טבלת קורלציות גבוהות
-                    csv_top = top_correlations.to_csv(index=False)
-                    st.download_button(
-                        "📥 הורד קורלציות גבוהות (CSV)",
-                        csv_top,
-                        f"top_correlations_{full_analysis_field}_{datetime.now().strftime('%Y%m%d')}.csv",
-                        "text/csv",
-                        use_container_width=True
-                    )
-                
-                with col2:
-                    # הורדת מטריצת קורלציה מלאה
-                    csv_matrix = correlation_matrix.to_csv()
-                    st.download_button(
-                        "📥 הורד מטריצת קורלציה מלאה (CSV)",
-                        csv_matrix,
-                        f"correlation_matrix_{full_analysis_field}_{datetime.now().strftime('%Y%m%d')}.csv",
-                        "text/csv",
-                        use_container_width=True
-                    )
-                
-                # הצגת heatmap (אם יש plotly)
-                try:
-                    import plotly.graph_objects as go
-                    import plotly.express as px
-                    
-                    st.markdown("""
-                    <div style='direction: rtl; text-align: right;'>
-                        <h4 style='color: #0066CC; margin-top: 1rem; margin-bottom: 1rem;'>📈 Heatmap של מטריצת קורלציה</h4>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # יצירת heatmap
-                    fig = px.imshow(
-                        correlation_matrix.values,
-                        labels=dict(x="מניה", y="מניה", color="קורלציה"),
-                        x=correlation_matrix.columns,
-                        y=correlation_matrix.index,
-                        color_continuous_scale="RdBu",
-                        aspect="auto"
-                    )
-                    
-                    fig.update_layout(
-                        title=f"מטריצת קורלציה - {full_analysis_field}",
-                        height=800,
-                        width=1000
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                except Exception as e:
-                    st.info("💡 Heatmap זמין רק עם plotly מותקן")
-        
-        except Exception as e:
-            st.error(f"❌ שגיאה בניתוח קורלציה מלא: {str(e)}")
-            import traceback
-            st.code(traceback.format_exc())
-
-# כפתור הרצת ניתוח רגיל
-st.markdown("---")
-st.markdown("""
-<div style='direction: rtl; text-align: right;'>
-    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>📊 ניתוח רגיל (מול מניית ייחוס)</h2>
-</div>
-""", unsafe_allow_html=True)
-
-col1, col2, col3 = st.columns([1, 2, 1])
-
-with col2:
-    if st.button("▶️ הרץ ניתוח", use_container_width=True, type="primary", key="run_analysis"):
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        time_start = time.time()
-        
-        try:
-            # שלב 1: הורדת מניית ייחוס
-            status_text.text(f"📥 מוריד נתוני מניית ייחוס ({reference_symbol})...")
-            progress_bar.progress(10)
+                rolling_time = 0
+                st.session_state.price_rolling_correlations = None
+                st.session_state.volume_rolling_correlations = None
             
-            ref_start = time.time()
-            fetcher = DataFetcher()
-            reference_data = fetcher.get_reference_stock_data(
-                reference_symbol,
-                start_date=reference_start_date.strftime("%Y-%m-%d"),
-                end_date=datetime.now().strftime("%Y-%m-%d")
-            )
-            ref_time = time.time() - ref_start
+            # סיום
+            total_time = time.time() - time_start
+            progress_bar.progress(100)
+            counter_text.markdown(f"**חישובים: {total_correlations:,} / {total_correlations:,}** ✅✅✅")
+            status_text.text("✅ החישוב הושלם!")
             
-            if reference_data is None:
-                st.error(f"❌ לא ניתן להוריד נתוני מניית ייחוס ({reference_symbol})")
-                st.stop()
-            
-            # שמירת reference_data ב-session state
-            st.session_state.reference_data = reference_data
-            st.session_state.reference_symbol = reference_symbol
-            
-            # שלב 2: יצירת המנוע
-            status_text.text("🔧 מאתחל מנוע חישוב...")
-            progress_bar.progress(30)
-            
-            engine = CorrelationEngine(params)
-            
-            # שלב 3: הרצת הניתוח
-            status_text.text("🔬 מריץ ניתוח מלא...")
-            progress_bar.progress(50)
-            
-            analysis_start = time.time()
-            results = engine.run_full_analysis(
-                st.session_state.stock_data,
-                reference_data['price'],
-                reference_data['volume']
-            )
-            analysis_time = time.time() - analysis_start
-            
-            # שמירת תוצאות
-            st.session_state.results = results
+            # שמירת תוצאות ב-session_state
+            st.session_state.price_correlation_matrix = price_matrix
+            st.session_state.volume_correlation_matrix = volume_matrix
+            st.session_state.combined_correlation_matrix = combined_matrix
+            st.session_state.top_correlations = top_correlations
             st.session_state.analysis_done = True
             st.session_state.engine = engine
+            st.session_state.analysis_params = params.copy()
+            st.session_state.analysis_timestamp = datetime.now()
             
-            total_time = time.time() - time_start
+            # הצגת סיכום
+            summary_text = f"""
+            ✅ **ניתוח 500×500 הושלם בהצלחה!**
             
-            progress_bar.progress(100)
-            status_text.text("✅ הניתוח הושלם!")
+            📊 **סטטיסטיקות:**
+            - מטריצת קורלציות: {num_stocks} × {num_stocks} = {total_correlations:,} חישובים
+            - אופציית ניתוח: {['', 'מחיר בלבד', 'נפח בלבד', 'משולב'][params['calc_mode']]}
+            - שדה מחיר: {params['price_field']}
+            """
             
-            st.success(f"""
-            ✅ **הניתוח הושלם בהצלחה!**
+            if calculate_over_time:
+                summary_text += f"\n- קורלציות לאורך זמן: חלון של {rolling_window} ימים ✅"
             
-            ⏱️ **זמן חישוב:**
-            - הורדת מניית ייחוס: {ref_time:.2f} שניות
-            - חישוב ניתוח: {analysis_time:.2f} שניות
+            summary_text += f"""
+            
+            ⏱️ **זמני חישוב:**
+            - קורלציות מחיר: {price_matrix_time:.2f} שניות
+            - קורלציות נפח: {volume_matrix_time:.2f} שניות
+            - שילוב: {combine_time:.2f} שניות
+            """
+            
+            if calculate_over_time:
+                summary_text += f"\n- קורלציות לאורך זמן: {rolling_time:.2f} שניות ({rolling_time/60:.2f} דקות)"
+            
+            summary_text += f"""
             - **סה"כ: {total_time:.2f} שניות ({total_time/60:.2f} דקות)**
             
-            עבור לעמוד 'תוצאות' כדי לראות את התוצאות.
-            """)
+            💾 **כל הנתונים נשמרו ב-session state**
+            
+            ➡️ **עבור לעמוד 'תוצאות' לצפייה בניתוח המלא**
+            """
+            
+            st.success(summary_text)
+            
             st.balloons()
             
+            # כפתור מעבר לתוצאות
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if st.button("➡️ עבור לעמוד תוצאות", type="primary", use_container_width=True):
+                    st.switch_page("pages/3_📈_תוצאות.py")
+        
         except Exception as e:
-            st.error(f"❌ שגיאה בניתוח: {str(e)}")
+            st.error(f"❌ שגיאה בחישוב: {str(e)}")
             import traceback
             with st.expander("פרטי שגיאה"):
                 st.code(traceback.format_exc())
-
-# הצגת סטטוס
-if st.session_state.analysis_done:
-    st.markdown("---")
-    st.success("✅ ניתוח הושלם בהצלחה! עבור לעמוד 'תוצאות' כדי לראות את התוצאות המפורטות.")
-    
-    # בדיקת איכות הקורלציות
-    if hasattr(st.session_state, 'engine') and hasattr(st.session_state, 'results'):
-        validation = st.session_state.engine.validate_correlations(st.session_state.results)
-        
-        # הצגת מדדי איכות
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric(
-                "ממוצע קורלציות משולבות",
-                f"{validation['average_correlation']:.3f}",
-                help="ממוצע כל הקורלציות המשולבות החיוביות"
-            )
-        
-        with col2:
-            st.metric(
-                "חציון קורלציות",
-                f"{validation['median_correlation']:.3f}",
-                help="חציון הקורלציות המשולבות"
-            )
-        
-        with col3:
-            very_high = validation['distribution']['very_high']
-            total = sum(validation['distribution'].values())
-            if total > 0:
-                pct = (very_high / total) * 100
-                st.metric(
-                    "קורלציות מעל 0.9",
-                    f"{very_high:,}",
-                    delta=f"{pct:.1f}%"
-                )
-        
-        # הערה אם יש קורלציות גבוהות מאוד
-        if validation['suspicious_high']:
-            st.info(f"""
-            ℹ️ **זוהו {len(validation['suspicious_high'])} מניות עם קורלציה מעל 0.95**
-            
-            זה נורמלי עבור מניות מאותה תעשייה/מדד כאשר מחשבים על מחירים גולמיים.
-            עבור לעמוד 'תוצאות' לפרטים נוספים.
-            """)
 

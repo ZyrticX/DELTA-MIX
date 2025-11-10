@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
 from datetime import datetime
 from utils import load_css, initialize_session_state
 
@@ -15,20 +16,38 @@ load_css()
 # אתחול session state
 initialize_session_state()
 
-# כותרת עמוד
-st.markdown("""
-<div style='direction: rtl; text-align: right;'>
-    <h1 style='color: #0066CC; margin-bottom: 2rem;'>📈 תוצאות ניתוח</h1>
-</div>
-""", unsafe_allow_html=True)
+# כותרת עמוד + כפתור רענון
+col1, col2 = st.columns([5, 1])
+
+with col1:
+    st.markdown("""
+    <div style='direction: rtl; text-align: right;'>
+        <h1 style='color: #0066CC;'>📈 תוצאות ניתוח</h1>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col2:
+    if st.button("🔄 רענן", use_container_width=True, key="refresh_results"):
+        st.rerun()
 
 # בדיקת ניתוח
 if not st.session_state.analysis_done:
     st.warning("⚠️ יש להריץ ניתוח קודם בעמוד 'ניתוח'")
-    st.info("עבור לעמוד ניתוח כדי להריץ את הניתוח.")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("➡️ עבור לעמוד ניתוח", type="primary", use_container_width=True):
+            st.switch_page("pages/2_🔬_ניתוח.py")
     st.stop()
 
-results = st.session_state.results
+# וידוא שיש מטריצות קורלציה
+if not hasattr(st.session_state, 'combined_correlation_matrix') or st.session_state.combined_correlation_matrix is None:
+    st.error("❌ לא נמצאו תוצאות ניתוח. יש להריץ ניתוח מחדש.")
+    st.stop()
+
+# קבלת המטריצות
+price_matrix = st.session_state.price_correlation_matrix
+volume_matrix = st.session_state.volume_correlation_matrix
+combined_matrix = st.session_state.combined_correlation_matrix
 engine = st.session_state.engine
 
 # הסבר על החישובים
@@ -37,688 +56,647 @@ with st.expander("🧮 הסבר על החישובים והלוגיקה", expande
     <div style='direction: rtl; text-align: right;'>
         <h3 style='color: #0066CC;'>איך עובד הניתוח?</h3>
         
-        <h4 style='color: #0066CC; margin-top: 1rem;'>1. קורלציה</h4>
-        <p><strong>קורלציה</strong> היא מדד סטטיסטי שמודד עד כמה שני משתנים נעים יחד.</p>
+        <h4 style='color: #0066CC; margin-top: 1rem;'>1. מטריצת קורלציה 500×500</h4>
+        <p>המערכת מחשבת קורלציה בין <strong>כל מניה לכל מניה אחרת</strong>.</p>
         <ul>
-            <li><strong>קורלציית מחיר</strong> (גיליון "שער" באקסל):
-                <br>🔹 לוקח 15 מחירים אחרונים של המניה
-                <br>🔹 משווה ל-15 מחירים אחרונים של מניית הייחוס
-                <br>🔹 מחשב קורלציית פירסון (CORREL באקסל)
-                <br>🔹 <strong>חישוב על מחירים גולמיים</strong> (לא תשואות)
-            </li>
-            <li><strong>קורלציית נפח</strong> (גיליון "מחזור" באקסל):
-                <br>🔹 לוקח 15 נפחי מסחר אחרונים של המניה
-                <br>🔹 משווה ל-15 נפחים אחרונים של מניית הייחוס
-                <br>🔹 מחשב קורלציית פירסון
-            </li>
-            <li><strong>קורלציה משולבת</strong> (גיליון "חישוב", calc_mode=3):
-                <ul>
-                    <li><strong>אם שתי הקורלציות חיוביות</strong> → מכפלה (שער × מחזור)</li>
-                    <li><strong>אם אחת מהן שלילית</strong> → 0</li>
-                    <li>טווח: 0 עד 1</li>
-                    <li>דוגמה: 0.85 × 0.72 = 0.612</li>
-                    <li><strong>למה מכפלה?</strong> מחזקת רק אם שתיהן חזקות, מסננת אותות חלשים</li>
-                </ul>
-            </li>
+            <li><strong>קורלציית מחיר</strong>: קורלציה בין מחירי Adj Close של שתי מניות</li>
+            <li><strong>קורלציית נפח</strong>: קורלציה בין נפחי המסחר של שתי מניות</li>
+            <li><strong>קורלציה משולבת</strong>: מכפלת שתי הקורלציות (רק אם שתיהן חיוביות)</li>
         </ul>
         
-        <h4 style='color: #0066CC; margin-top: 1rem;'>2. יחס נפח</h4>
-        <p><strong>יחס נפח</strong> = ממוצע נע של נפח המסחר / נפח נוכחי</p>
+        <h4 style='color: #0066CC; margin-top: 1rem;'>2. שלוש אופציות ניתוח</h4>
         <ul>
-            <li>ערך > 1.01 (סף + 1%): נפח גבוה יותר מהרגיל = אות להזדמנות</li>
-            <li>ערך < 1: נפח נמוך מהרגיל</li>
+            <li><strong>אופציה 1</strong>: מחיר בלבד (Adj Close)</li>
+            <li><strong>אופציה 2</strong>: נפח בלבד (Volume)</li>
+            <li><strong>אופציה 3</strong>: משולב - מכפלה רק אם שתיהן חיוביות</li>
         </ul>
         
-        <h4 style='color: #0066CC; margin-top: 1rem;'>3. סף מובהקות</h4>
-        <p><strong>סף מובהקות</strong> (ברירת מחדל: 0.7) - רק ימים שבהם הקורלציה המשולבת >= 0.7 נחשבים "כשירים"</p>
-        
-        <h4 style='color: #0066CC; margin-top: 1rem;'>4. הזדמנויות UP</h4>
-        <p>יום נחשב ל-<strong>"הזדמנות UP"</strong> כאשר:</p>
+        <h4 style='color: #0066CC; margin-top: 1rem;'>3. תשואות</h4>
         <ul>
-            <li>הקורלציה המשולבת >= סף מובהקות (0.7)</li>
-            <li>יחס הנפח > סף מהותיות (1.01)</li>
+            <li><strong>תשואה יומית</strong>: (מחיר היום - מחיר אתמול) / מחיר אתמול × 100</li>
+            <li><strong>תשואה מצטברת</strong>: (מחיר היום - מחיר ראשון) / מחיר ראשון × 100</li>
+            <li><strong>תשואה שנתית</strong>: תשואה מצטברת / מספר שנים</li>
         </ul>
-        
-        <h4 style='color: #0066CC; margin-top: 1rem;'>5. חישוב התוצאות הסופיות</h4>
-        <p><strong>למניה בודדת</strong> (כמו באקסל, עמודה AH):</p>
-        <ul>
-            <li><strong>UP</strong> (שורה 2): =COUNTIF(W$2:W$1259, ">1.01")
-                <br>→ סופר כמה ימים היחס עבר את הסף (> 1.01)
-            </li>
-            <li><strong>TOTAL</strong> (שורה 4): =COUNTIF(W$2:W$1259, ">0")
-                <br>→ כל הימים עם קורלציה מובהקת
-            </li>
-            <li><strong>DOWN</strong> (שורה 3): =AH4-AH2
-                <br>→ ימים כשירים שלא היו הזדמנויות
-            </li>
-        </ul>
-        
-        <p><strong>סיכום כללי</strong> (כמו באקסל, עמודה AR):</p>
-        <ul>
-            <li><strong>סה"כ UP</strong> (שורה 2): =SUM(AH2:AQ2)
-                <br>→ סכום כל ההזדמנויות מכל המניות
-            </li>
-            <li><strong>אחוזים</strong>: UP / TOTAL × 100
-                <br>→ אחוז הימים שהיו הזדמנויות
-            </li>
-        </ul>
-        
-        <p style='background-color: #E6F2FF; padding: 10px; border-radius: 5px; margin-top: 10px;'>
-        <strong>📌 דוגמה:</strong><br>
-        אם מניית AAPL היו לה 287 ימי UP מתוך 1,143 ימים כשירים:<br>
-        • UP = 287<br>
-        • TOTAL = 1,143<br>
-        • DOWN = 1,143 - 287 = 856<br>
-        • אחוז UP = 287 / 1,143 × 100 = 25.1%
-        </p>
     </div>
     """, unsafe_allow_html=True)
 
-# בדיקת איכות הקורלציות
-validation = engine.validate_correlations(results)
-
-# הצגת מידע על איכות הקורלציות
-if validation['average_correlation'] > 0:
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric(
-            "ממוצע קורלציות",
-            f"{validation['average_correlation']:.3f}",
-            help="ממוצע כל הקורלציות המשולבות החיוביות"
-        )
-    
-    with col2:
-        st.metric(
-            "חציון קורלציות", 
-            f"{validation['median_correlation']:.3f}",
-            help="חציון הקורלציות המשולבות"
-        )
-    
-    with col3:
-        high_pct = validation['distribution']['high']
-        total = sum(validation['distribution'].values())
-        st.metric(
-            "קורלציות גבוהות (0.7-0.9)",
-            f"{high_pct:,}",
-            delta=f"{high_pct/total*100:.1f}%" if total > 0 else "0%"
-        )
-    
-    with col4:
-        very_high = validation['distribution']['very_high']
-        st.metric(
-            "קורלציות מאוד גבוהות (>0.9)",
-            f"{very_high:,}",
-            delta="⚠️ חשוד" if very_high > total * 0.1 else "✓ תקין",
-            delta_color="inverse" if very_high > total * 0.1 else "normal"
-        )
-    
-    # הערה אם יש קורלציות גבוהות מאוד
-    if validation['suspicious_high']:
-        st.info(f"""
-        ℹ️ **זוהו {len(validation['suspicious_high'])} מניות עם קורלציה מעל 0.95**
-        
-        קורלציות גבוהות כאלה יכולות להתרחש כאשר:
-        - מניות מאותה תעשייה או מדד
-        - מניות עם דפוסי תנועה דומים מאוד
-        - קרנות ETF המעקבות אחרי מדדים דומים
-        
-        זה נורמלי כאשר מחשבים קורלציה על מחירים גולמיים (כמו באקסל).
-        """)
-
 st.markdown("---")
 
-# סטטיסטיקה כללית
-st.markdown("""
-<div style='direction: rtl; text-align: right;'>
-    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>📊 סטטיסטיקה כללית</h2>
-    <p style='color: #666;'>
-    סיכום כל ההזדמנויות מכל המניות (כמו עמודה AR באקסל)
-    </p>
-</div>
-""", unsafe_allow_html=True)
+# טאבים
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🏆 קורלציות גבוהות",
+    "🎯 בחר מניית ייחוס",
+    "📊 מטריצת קורלציה",
+    "💰 תשואות",
+    "⏱️ קורלציות לפי תאריך"
+])
 
-stats = results['statistics']
-
-# חישוב סיכומים - בדיוק כמו SUM באקסל (שורה 2, עמודה AR)
-total_up = sum(s['UP'] for s in stats.values())       # =SUM(AH2:AQ2)
-total_down = sum(s['DOWN'] for s in stats.values())   # =SUM(AH3:AQ3)
-total_total = sum(s['TOTAL'] for s in stats.values()) # =SUM(AH4:AQ4)
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric(
-        "סה\"כ הזדמנויות UP",
-        f"{total_up:,}",
-        delta=f"{total_up/total_total*100:.1f}%" if total_total > 0 else "0%"
-    )
-
-with col2:
-    st.metric(
-        "סה\"כ ימים DOWN",
-        f"{total_down:,}",
-        delta=f"{total_down/total_total*100:.1f}%" if total_total > 0 else "0%",
-        delta_color="inverse"
-    )
-
-with col3:
-    st.metric(
-        "סה\"כ ימים כשירים",
-        f"{total_total:,}"
-    )
-
-with col4:
-    st.metric(
-        "מספר מניות",
-        len(stats)
-    )
-
-# תיבת מידע על יתרונות המערכת
-st.info("""
-💡 **יתרונות המערכת Python לעומת האקסל:**
-
-• **בהירות**: כל מספר מובן ושקוף (אין "31 מסתורי")  
-• **קנה מידה**: 500 מניות במקום 10  
-• **נתונים**: 3,000+ ימים במקום 1,259  
-• **מהירות**: חישובים אוטומטיים ומהירים  
-• **ויזואליזציה**: גרפים אינטראקטיביים וטבלאות ברורות  
-
-**הלוגיקה זהה 100% לאקסל, אבל התוצאות ברורות הרבה יותר!** ✨
-""")
-
-st.markdown("---")
-
-# טבלת מניות
-st.markdown("""
-<div style='direction: rtl; text-align: right;'>
-    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>📋 פירוט למניות</h2>
-    <p style='color: #666;'>
-    כל מניה עם הספירות שלה (כמו עמודות AH-AQ באקסל):
-    <br>• <strong>UP</strong> = מספר ימים עם הזדמנויות (יחס נפח > 1.01)
-    <br>• <strong>DOWN</strong> = ימים כשירים ללא הזדמנויות
-    <br>• <strong>TOTAL</strong> = סה"כ ימים כשירים (קורלציה מובהקת)
-    </p>
-</div>
-""", unsafe_allow_html=True)
-
-# יצירת DataFrame
-df_stats = pd.DataFrame(stats).T
-df_stats = df_stats.sort_values('UP', ascending=False)
-
-# עיצוב
-df_display = df_stats.copy()
-df_display['UP_PCT'] = df_display['UP_PCT'].apply(lambda x: f"{x*100:.1f}%")
-df_display['DOWN_PCT'] = df_display['DOWN_PCT'].apply(lambda x: f"{x*100:.1f}%")
-
-# חיפוש וסינון
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    st.markdown('<div style="direction: rtl; text-align: right;">🔍 חפש מניה</div>', unsafe_allow_html=True)
-    search = st.text_input("", "", key="search_stock", label_visibility="collapsed")
-
-with col2:
-    st.markdown('<div style="direction: rtl; text-align: right;">מינימום הזדמנויות</div>', unsafe_allow_html=True)
-    min_opportunities = st.number_input("", min_value=0, value=0, key="min_opp", label_visibility="collapsed")
-
-# סינון
-if search:
-    df_display = df_display[df_display.index.str.contains(search.upper())]
-
-if min_opportunities > 0:
-    df_display = df_display[df_display['UP'] >= min_opportunities]
-
-# הצגה
-st.dataframe(
-    df_display,
-    use_container_width=True,
-    height=400
-)
-
-# הורדה
-csv = df_display.to_csv()
-st.download_button(
-    "📥 הורד טבלה (CSV)",
-    csv,
-    "stocks_statistics.csv",
-    "text/csv"
-)
-
-st.markdown("---")
-
-# תצוגה מפורטת - כל המניות מעל הסף
-st.markdown("""
-<div style='direction: rtl; text-align: right;'>
-    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>📊 תצוגה מפורטת - כל המניות מעל הסף</h2>
-    <p style='color: #666;'>
-    טבלה זו מציגה רק מניות שהקורלציה המשולבת <strong>ביום האחרון</strong> עוברת את הסף.
-    <br>כל מניה כוללת את כל הנתונים הרלוונטיים: קורלציות, יחס נפח, וסטטיסטיקות היסטוריות.
-    </p>
-</div>
-""", unsafe_allow_html=True)
-
-# בניית טבלה מפורטת
-detailed_results = []
-for symbol in results['statistics'].keys():
-    # קורלציה אחרונה של כל סוג
-    last_price_corr = results['price_correlations'][symbol].iloc[-1]
-    last_volume_corr = results['volume_correlations'][symbol].iloc[-1]
-    last_combined_corr = results['combined_correlations'][symbol].iloc[-1]
-    last_volume_ratio = results['volume_ratios'][symbol].iloc[-1]
-    
-    # רק מניות מעל הסף
-    if last_combined_corr >= engine.significance:
-        detailed_results.append({
-            'מניה': symbol,
-            'קורלציית מחיר': last_price_corr,
-            'קורלציית נפח': last_volume_corr,
-            'קורלציה משולבת': last_combined_corr,
-            'יחס נפח': last_volume_ratio,
-            'ימים UP': results['statistics'][symbol]['UP'],
-            'אחוז UP': results['statistics'][symbol]['UP_PCT'],
-            'סה"כ ימים': results['statistics'][symbol]['TOTAL']
-        })
-
-if detailed_results:
-    df_detailed = pd.DataFrame(detailed_results)
-    df_detailed = df_detailed.sort_values('קורלציה משולבת', ascending=False)
-    
-    st.success(f"✅ נמצאו **{len(df_detailed)}** מניות מעל הסף ({engine.significance})")
-    
-    # סינון
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        min_combined = st.slider(
-            "קורלציה משולבת מינימלית",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(engine.significance),
-            step=0.05,
-            help="סנן מניות לפי קורלציה משולבת מינימלית"
-        )
-    
-    with col2:
-        min_up_days = st.number_input(
-            "מינימום ימי UP",
-            min_value=0,
-            value=0,
-            help="סנן מניות לפי מספר מינימלי של ימי הזדמנויות"
-        )
-    
-    with col3:
-        search_symbol = st.text_input(
-            "חפש מניה",
-            "",
-            help="חפש מניה ספציפית לפי סימול"
-        )
-    
-    # החלת סינונים
-    df_filtered = df_detailed[df_detailed['קורלציה משולבת'] >= min_combined]
-    if min_up_days > 0:
-        df_filtered = df_filtered[df_filtered['ימים UP'] >= min_up_days]
-    if search_symbol:
-        df_filtered = df_filtered[df_filtered['מניה'].str.contains(search_symbol.upper())]
-    
-    # עיצוב הטבלה
-    df_display = df_filtered.copy()
-    df_display['קורלציית מחיר'] = df_display['קורלציית מחיר'].apply(lambda x: f"{x:.3f}")
-    df_display['קורלציית נפח'] = df_display['קורלציית נפח'].apply(lambda x: f"{x:.3f}")
-    df_display['קורלציה משולבת'] = df_display['קורלציה משולבת'].apply(lambda x: f"{x:.3f}")
-    df_display['יחס נפח'] = df_display['יחס נפח'].apply(lambda x: f"{x:.3f}")
-    df_display['אחוז UP'] = df_display['אחוז UP'].apply(lambda x: f"{x*100:.1f}%")
-    
-    st.dataframe(df_display, use_container_width=True, height=400)
-    
-    # הסבר על העמודות
-    with st.expander("ℹ️ הסבר על העמודות"):
-        st.markdown("""
-        <div style='direction: rtl; text-align: right;'>
-        - **מניה**: סימול המניה
-        - **קורלציית מחיר**: קורלציה בין מחירי המניה למניית הייחוס (ערך אחרון, חישוב על מחירים גולמיים)
-        - **קורלציית נפח**: קורלציה בין נפחי המסחר של המניה למניית הייחוס (ערך אחרון)
-        - **קורלציה משולבת**: מכפלה של קורלציית מחיר × קורלציית נפח (ערך אחרון)
-        - **יחס נפח**: ממוצע נע של נפח / נפח נוכחי (ערך אחרון)
-        - **ימים UP**: מספר הימים שבהם היו הזדמנויות (קורלציה מעל הסף + יחס נפח מעל הסף)
-        - **אחוז UP**: אחוז הימים עם הזדמנויות מתוך כל הימים הכשירים
-        - **סה"כ ימים**: סה"כ ימים כשירים (קורלציה מעל הסף)
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # הורדה
-    csv_detailed = df_filtered.to_csv(index=False)
-    st.download_button(
-        "📥 הורד טבלה מפורטת (CSV)",
-        csv_detailed,
-        f"detailed_correlations_{datetime.now().strftime('%Y%m%d')}.csv",
-        "text/csv"
-    )
-else:
-    st.info("לא נמצאו מניות מעל הסף")
-
-st.markdown("---")
-
-# הזדמנויות להיום
-st.markdown("""
-<div style='direction: rtl; text-align: right;'>
-    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>🎯 הזדמנויות להיום</h2>
-</div>
-""", unsafe_allow_html=True)
-
-opportunities = engine.find_today_opportunities(results)
-
-if not opportunities:
-    st.info("לא נמצאו הזדמנויות להיום")
-else:
-    st.success(f"נמצאו {len(opportunities)} הזדמנויות!")
-    
-    # הצגה בכרטיסים
-    for i, opp in enumerate(opportunities[:10]):  # הצג רק 10 ראשונות
-        with st.expander(f"🎯 {opp['symbol']} - קורלציה: {opp['correlation']:.3f}"):
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("קורלציה", f"{opp['correlation']:.3f}")
-            
-            with col2:
-                st.metric("יחס נפח", f"{opp['volume_ratio']:.3f}")
-            
-            with col3:
-                st.metric("תאריך", opp['date'].strftime('%Y-%m-%d'))
-
-st.markdown("---")
-
-# גרפים
-st.markdown("""
-<div style='direction: rtl; text-align: right;'>
-    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>📊 גרפים</h2>
-</div>
-""", unsafe_allow_html=True)
-
-tab1, tab2, tab3, tab4 = st.tabs(["התפלגות הזדמנויות", "קורלציות לאורך זמן", "היסטוגרמה", "התפלגות קורלציות"])
-
+# טאב 1: קורלציות גבוהות
 with tab1:
-    # גרף התפלגות הזדמנויות
-    df_chart = pd.DataFrame({
-        'Symbol': list(stats.keys()),
-        'UP': [s['UP'] for s in stats.values()],
-        'DOWN': [s['DOWN'] for s in stats.values()]
-    })
+    st.markdown("""
+    <div style='direction: rtl; text-align: right;'>
+        <h2 style='color: #0066CC;'>🏆 הקורלציות הגבוהות ביותר</h2>
+        <p>זוגות המניות עם הקורלציה הגבוהה ביותר</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    df_chart = df_chart.sort_values('UP', ascending=False).head(20)
-    
-    fig = go.Figure()
-    
-    fig.add_trace(go.Bar(
-        x=df_chart['Symbol'],
-        y=df_chart['UP'],
-        name='UP (הזדמנויות)',
-        marker_color='#0066CC'
-    ))
-    
-    fig.add_trace(go.Bar(
-        x=df_chart['Symbol'],
-        y=df_chart['DOWN'],
-        name='DOWN (רגיל)',
-        marker_color='#CCCCCC'
-    ))
-    
-    fig.update_layout(
-        title={
-            'text': '20 המניות עם הכי הרבה הזדמנויות',
-            'x': 0.5,
-            'xanchor': 'center',
-            'font': {'size': 18, 'color': '#0066CC'}
-        },
-        xaxis_title='מניה',
-        yaxis_title='מספר ימים',
-        barmode='stack',
-        height=500,
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        font=dict(family='Segoe UI', size=12),
-        xaxis=dict(showgrid=True, gridcolor='#E6F2FF'),
-        yaxis=dict(showgrid=True, gridcolor='#E6F2FF'),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        )
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-with tab2:
-    # גרף קורלציות לאורך זמן
-    combined = results['combined_correlations']
-    
-    st.markdown('<div style="direction: rtl; text-align: right; margin-bottom: 0.5rem;">בחר מניות להצגה</div>', unsafe_allow_html=True)
-    selected_stocks = st.multiselect(
-        "",
-        options=list(combined.columns),
-        default=list(combined.columns)[:5],
-        max_selections=10,
-        label_visibility="collapsed"
-    )
-    
-    if selected_stocks:
-        fig = go.Figure()
+    if hasattr(st.session_state, 'top_correlations') and st.session_state.top_correlations is not None:
+        top_corr = st.session_state.top_correlations
         
-        for stock in selected_stocks:
-            fig.add_trace(go.Scatter(
-                x=combined.index,
-                y=combined[stock],
-                name=stock,
-                mode='lines'
+        # הצגת סטטיסטיקות
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("מספר זוגות", len(top_corr))
+        
+        with col2:
+            if len(top_corr) > 0:
+                st.metric("קורלציה ממוצעת", f"{top_corr['קורלציה'].mean():.3f}")
+        
+        with col3:
+            if len(top_corr) > 0:
+                st.metric("קורלציה מקסימלית", f"{top_corr['קורלציה'].max():.3f}")
+        
+        # טבלה
+        st.dataframe(top_corr, use_container_width=True, height=500)
+        
+        # הורדה
+        csv = top_corr.to_csv(index=False)
+        st.download_button(
+            "📥 הורד קורלציות גבוהות (CSV)",
+            csv,
+            f"top_correlations_{datetime.now().strftime('%Y%m%d')}.csv",
+            "text/csv"
+        )
+        
+        # גרף
+        if len(top_corr) > 0:
+            st.markdown("### גרף 20 הקורלציות הגבוהות ביותר")
+            
+            top_20 = top_corr.head(20).copy()
+            top_20['זוג'] = top_20['מניה 1'] + ' ↔ ' + top_20['מניה 2']
+            
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                x=top_20['זוג'],
+                y=top_20['קורלציה'],
+                marker_color='#0066CC'
             ))
-        
-        fig.update_layout(
-            title={
-                'text': 'קורלציות משולבות לאורך זמן',
-                'x': 0.5,
-                'xanchor': 'center',
-                'font': {'size': 18, 'color': '#0066CC'}
-            },
-            xaxis_title='תאריך',
-            yaxis_title='קורלציה',
-            height=500,
-            hovermode='x unified',
-            plot_bgcolor='white',
-            paper_bgcolor='white',
-            font=dict(family='Segoe UI', size=12),
-            xaxis=dict(showgrid=True, gridcolor='#E6F2FF'),
-            yaxis=dict(showgrid=True, gridcolor='#E6F2FF'),
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
+            
+            fig.update_layout(
+                title="20 זוגות המניות עם הקורלציה הגבוהה ביותר",
+                xaxis_title="זוג מניות",
+                yaxis_title="קורלציה",
+                height=500,
+                xaxis={'tickangle': -45}
             )
-        )
-        
-        # עדכון צבעי הקווים לכחול
-        for i, trace in enumerate(fig.data):
-            trace.line.color = '#0066CC' if i == 0 else f'rgba(0, 102, 204, {0.7 - i*0.1})'
-        
-        st.plotly_chart(fig, use_container_width=True)
+            
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("אין נתוני קורלציות גבוהות")
 
-with tab3:
-    # היסטוגרמה
-    up_counts = [s['UP'] for s in stats.values()]
+# טאב 2: בחירת מניית ייחוס
+with tab2:
+    st.markdown("""
+    <div style='direction: rtl; text-align: right;'>
+        <h2 style='color: #0066CC;'>🎯 בחר מניית ייחוס</h2>
+        <p>בחר מניה אחת ותראה את הקורלציות שלה מול כל המניות האחרות</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    fig = go.Figure(data=[go.Histogram(
-        x=up_counts, 
-        nbinsx=20,
-        marker_color='#0066CC',
-        marker_line_color='#0052A3',
-        marker_line_width=1
-    )])
-    
-    fig.update_layout(
-        title={
-            'text': 'התפלגות מספר ההזדמנויות למניה',
-            'x': 0.5,
-            'xanchor': 'center',
-            'font': {'size': 18, 'color': '#0066CC'}
-        },
-        xaxis_title='מספר הזדמנויות',
-        yaxis_title='מספר מניות',
-        height=400,
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        font=dict(family='Segoe UI', size=12),
-        xaxis=dict(showgrid=True, gridcolor='#E6F2FF'),
-        yaxis=dict(showgrid=True, gridcolor='#E6F2FF'),
-        showlegend=False
+    # בחירת מניה
+    reference_stock = st.selectbox(
+        "בחר מניית ייחוס",
+        options=combined_matrix.columns.tolist(),
+        help="בחר מניה לראות את הקורלציות שלה מול כל המניות"
     )
     
-    st.plotly_chart(fig, use_container_width=True)
-
-with tab4:
-    # התפלגות קורלציות משולבות
-    st.markdown('<div style="direction: rtl; text-align: right; margin-bottom: 1rem;">התפלגות הקורלציות המשולבות לכל המניות</div>', unsafe_allow_html=True)
-    
-    # איסוף כל הקורלציות
-    combined = results['combined_correlations']
-    all_correlations = []
-    
-    for col in combined.columns:
-        col_values = combined[col].values
-        # רק ערכים תקינים (לא NaN ולא 0)
-        valid_values = col_values[(~np.isnan(col_values)) & (col_values > 0)]
-        all_correlations.extend(valid_values.tolist())
-    
-    if all_correlations:
-        fig = go.Figure()
+    if reference_stock:
+        # חילוץ קורלציות של המניה הנבחרת
+        correlations_with_ref = combined_matrix[reference_stock].copy()
         
-        # היסטוגרמה
-        fig.add_trace(go.Histogram(
-            x=all_correlations,
-            nbinsx=50,
-            marker_color='#0066CC',
-            marker_line_color='#0052A3',
-            marker_line_width=1,
-            name='קורלציות משולבות'
-        ))
+        # מיון לפי קורלציה (הגבוהה ביותר ראשון)
+        correlations_with_ref = correlations_with_ref.sort_values(ascending=False)
         
-        # קו אנכי בסף המובהקות
-        fig.add_vline(
-            x=engine.significance,
-            line_dash="dash",
-            line_color="red",
-            annotation_text=f"סף מובהקות ({engine.significance})",
-            annotation_position="top right"
-        )
+        # הצגה
+        st.success(f"מציג קורלציות של **{reference_stock}** מול כל המניות")
         
-        fig.update_layout(
-            title={
-                'text': 'התפלגות הקורלציות המשולבות',
-                'x': 0.5,
-                'xanchor': 'center',
-                'font': {'size': 18, 'color': '#0066CC'}
-            },
-            xaxis_title='קורלציה משולבת',
-            yaxis_title='תדירות',
-            height=500,
-            plot_bgcolor='white',
-            paper_bgcolor='white',
-            font=dict(family='Segoe UI', size=12),
-            xaxis=dict(showgrid=True, gridcolor='#E6F2FF', range=[0, 1]),
-            yaxis=dict(showgrid=True, gridcolor='#E6F2FF'),
-            showlegend=False
-        )
+        # טבלה
+        df_ref = pd.DataFrame({
+            'מניה': correlations_with_ref.index,
+            'קורלציה': correlations_with_ref.values
+        })
         
-        st.plotly_chart(fig, use_container_width=True)
+        # הסר את המניה עצמה (קורלציה של 1)
+        df_ref = df_ref[df_ref['מניה'] != reference_stock]
         
         # סטטיסטיקות
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("ממוצע", f"{np.mean(all_correlations):.3f}")
+            positive = (df_ref['קורלציה'] > 0).sum()
+            st.metric("קורלציות חיוביות", positive)
         
         with col2:
-            st.metric("חציון", f"{np.median(all_correlations):.3f}")
+            negative = (df_ref['קורלציה'] < 0).sum()
+            st.metric("קורלציות שליליות", negative)
         
         with col3:
-            st.metric("סטיית תקן", f"{np.std(all_correlations):.3f}")
+            avg_corr = df_ref['קורלציה'].mean()
+            st.metric("קורלציה ממוצעת", f"{avg_corr:.3f}")
         
         with col4:
-            above_threshold = sum(1 for c in all_correlations if c >= engine.significance)
-            pct = (above_threshold / len(all_correlations)) * 100
-            st.metric("מעל הסף", f"{above_threshold:,} ({pct:.1f}%)")
+            max_corr = df_ref['קורלציה'].max()
+            st.metric("קורלציה מקסימלית", f"{max_corr:.3f}")
         
-        st.info("""
-        📊 **איך לקרוא את הגרף:**
-        - כאשר מחשבים על מחירים גולמיים, קורלציות יכולות להיות גבוהות (0.7-0.9)
-        - זה נורמלי במיוחד עבור מניות באותה תעשייה או מדד
-        - הקו האדום מסמן את סף המובהקות שהוגדר
-        - ריכוז גבוה מעל 0.95 עדיין יכול להצביע על מניות זהות כמעט
-        """)
+        st.dataframe(df_ref, use_container_width=True, height=500)
+        
+        # גרף
+        st.markdown("### 20 המניות עם הקורלציה הגבוהה ביותר")
+        
+        fig = go.Figure()
+        top_20 = df_ref.head(20)
+        fig.add_trace(go.Bar(
+            x=top_20['מניה'],
+            y=top_20['קורלציה'],
+            marker_color='#0066CC'
+        ))
+        
+        fig.update_layout(
+            title=f"20 המניות עם הקורלציה הגבוהה ביותר ל-{reference_stock}",
+            xaxis_title="מניה",
+            yaxis_title="קורלציה",
+            height=500,
+            xaxis={'tickangle': -45}
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # הורדה
+        csv = df_ref.to_csv(index=False)
+        st.download_button(
+            "📥 הורד נתונים (CSV)",
+            csv,
+            f"correlations_{reference_stock}_{datetime.now().strftime('%Y%m%d')}.csv",
+            "text/csv"
+        )
+
+# טאב 3: מטריצת קורלציה
+with tab3:
+    st.markdown("""
+    <div style='direction: rtl; text-align: right;'>
+        <h2 style='color: #0066CC;'>📊 מטריצת קורלציה מלאה</h2>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # בחירת סוג מטריצה
+    matrix_type = st.radio(
+        "בחר סוג מטריצה",
+        options=["קורלציה משולבת", "קורלציית מחיר", "קורלציית נפח"],
+        horizontal=True
+    )
+    
+    if matrix_type == "קורלציית מחיר":
+        display_matrix = price_matrix
+    elif matrix_type == "קורלציית נפח":
+        display_matrix = volume_matrix
     else:
-        st.warning("אין מספיק נתונים להצגת התפלגות")
-
-st.markdown("---")
-
-# ייצוא תוצאות
-st.markdown("""
-<div style='direction: rtl; text-align: right;'>
-    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>💾 ייצוא תוצאות</h2>
-</div>
-""", unsafe_allow_html=True)
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    if st.button("📥 ייצא ל-Excel", use_container_width=True):
+        display_matrix = combined_matrix
+    
+    # סטטיסטיקות
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("מספר מניות", len(display_matrix))
+    
+    with col2:
+        total_corr = len(display_matrix) * (len(display_matrix) - 1) // 2
+        st.metric("סה\"כ קורלציות", f"{total_corr:,}")
+    
+    with col3:
+        # קורלציה ממוצעת (ללא האלכסון)
+        mask = np.triu(np.ones_like(display_matrix, dtype=bool), k=1)
+        avg_corr = display_matrix.values[mask].mean()
+        st.metric("קורלציה ממוצעת", f"{avg_corr:.3f}")
+    
+    with col4:
+        max_corr = display_matrix.values[mask].max()
+        st.metric("קורלציה מקסימלית", f"{max_corr:.3f}")
+    
+    # Heatmap - רק אם המטריצה לא גדולה מדי
+    if len(display_matrix) <= 100:
+        st.markdown("### Heatmap")
+        
+        fig = px.imshow(
+            display_matrix.values,
+            labels=dict(x="מניה", y="מניה", color="קורלציה"),
+            x=display_matrix.columns,
+            y=display_matrix.index,
+            color_continuous_scale="RdBu_r",
+            aspect="auto",
+            zmin=-1,
+            zmax=1
+        )
+        
+        fig.update_layout(
+            title=f"מטריצת {matrix_type}",
+            height=800
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info(f"💡 המטריצה גדולה מדי ({len(display_matrix)}×{len(display_matrix)}) להצגת Heatmap. הורד את המטריצה לצפייה חיצונית.")
+    
+    # הורדת מטריצה
+    st.markdown("### הורדת מטריצה")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        csv = display_matrix.to_csv()
+        st.download_button(
+            "📥 הורד מטריצה (CSV)",
+            csv,
+            f"correlation_matrix_{matrix_type}_{datetime.now().strftime('%Y%m%d')}.csv",
+            "text/csv",
+            use_container_width=True
+        )
+    
+    with col2:
         try:
             from io import BytesIO
-            
             output = BytesIO()
-            
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # סטטיסטיקות
-                df_stats = pd.DataFrame(results['statistics']).T
-                df_stats.to_excel(writer, sheet_name='Statistics')
-                
-                # קורלציות שער
-                results['price_correlations'].to_excel(writer, sheet_name='Price_Correlations')
-                
-                # קורלציות מחזור
-                results['volume_correlations'].to_excel(writer, sheet_name='Volume_Correlations')
-                
-                # קורלציות משולבות
-                results['combined_correlations'].to_excel(writer, sheet_name='Combined_Correlations')
-                
-                # יחסי נפח
-                results['volume_ratios'].to_excel(writer, sheet_name='Volume_Ratios')
-            
-            output.seek(0)
+                display_matrix.to_excel(writer, sheet_name=matrix_type)
+            excel_data = output.getvalue()
             
             st.download_button(
-                "⬇️ הורד קובץ Excel",
-                output,
-                f"correlation_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                "📥 הורד מטריצה (Excel)",
+                excel_data,
+                f"correlation_matrix_{matrix_type}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        except:
+            st.info("💡 הורדת Excel דורשת התקנת openpyxl")
+
+# טאב 4: תשואות
+with tab4:
+    st.markdown("""
+    <div style='direction: rtl; text-align: right;'>
+        <h2 style='color: #0066CC;'>💰 תשואות</h2>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # חישוב תשואות
+    if st.session_state.stock_data is not None:
+        with st.spinner("מחשב תשואות..."):
+            returns_data = engine.calculate_returns(st.session_state.stock_data)
+        
+        daily_returns = returns_data['daily_returns']
+        cumulative_returns = returns_data['cumulative_returns']
+        annualized_returns = returns_data['annualized_returns']
+        
+        # סטטיסטיקות כלליות
+        st.markdown("### סטטיסטיקות כלליות")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            avg_annual = annualized_returns.mean()
+            st.metric("תשואה שנתית ממוצעת", f"{avg_annual:.2f}%")
+        
+        with col2:
+            median_annual = annualized_returns.median()
+            st.metric("תשואה שנתית חציונית", f"{median_annual:.2f}%")
+        
+        with col3:
+            best_stock = annualized_returns.idxmax()
+            best_return = annualized_returns.max()
+            st.metric("תשואה שנתית מקסימלית", f"{best_return:.2f}%", delta=best_stock)
+        
+        with col4:
+            worst_stock = annualized_returns.idxmin()
+            worst_return = annualized_returns.min()
+            st.metric("תשואה שנתית מינימלית", f"{worst_return:.2f}%", delta=worst_stock)
+        
+        # טבלת תשואות
+        st.markdown("### טבלת תשואות למניות")
+        
+        # בניית טבלה
+        returns_table = pd.DataFrame({
+            'מניה': annualized_returns.index,
+            'תשואה יומית ממוצעת (%)': [daily_returns[s].mean() for s in annualized_returns.index],
+            'תשואה מצטברת (%)': [cumulative_returns[s].iloc[-1] for s in annualized_returns.index],
+            'תשואה שנתית (%)': annualized_returns.values
+        })
+        
+        # מיון לפי תשואה שנתית
+        returns_table = returns_table.sort_values('תשואה שנתית (%)', ascending=False)
+        
+        # עיגול
+        returns_table['תשואה יומית ממוצעת (%)'] = returns_table['תשואה יומית ממוצעת (%)'].round(3)
+        returns_table['תשואה מצטברת (%)'] = returns_table['תשואה מצטברת (%)'].round(2)
+        returns_table['תשואה שנתית (%)'] = returns_table['תשואה שנתית (%)'].round(2)
+        
+        st.dataframe(returns_table, use_container_width=True, height=500)
+        
+        # גרף התפלגות תשואות
+        st.markdown("### התפלגות תשואות שנתיות")
+        
+        fig = go.Figure()
+        fig.add_trace(go.Histogram(
+            x=annualized_returns.values,
+            nbinsx=50,
+            marker_color='#0066CC'
+        ))
+        
+        fig.update_layout(
+            title="התפלגות תשואות שנתיות",
+            xaxis_title="תשואה שנתית (%)",
+            yaxis_title="מספר מניות",
+            height=500
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # גרף תשואות מצטברות לאורך זמן
+        st.markdown("### תשואות מצטברות לאורך זמן (10 מניות מובילות)")
+        
+        # בחר 10 מניות עם התשואה הגבוהה ביותר
+        top_10_stocks = returns_table.head(10)['מניה'].tolist()
+        
+        fig = go.Figure()
+        for stock in top_10_stocks:
+            fig.add_trace(go.Scatter(
+                x=cumulative_returns.index,
+                y=cumulative_returns[stock],
+                mode='lines',
+                name=stock
+            ))
+        
+        fig.update_layout(
+            title="תשואות מצטברות לאורך זמן - 10 המניות המובילות",
+            xaxis_title="תאריך",
+            yaxis_title="תשואה מצטברת (%)",
+            height=600,
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # הורדה
+        csv = returns_table.to_csv(index=False)
+        st.download_button(
+            "📥 הורד טבלת תשואות (CSV)",
+            csv,
+            f"returns_{datetime.now().strftime('%Y%m%d')}.csv",
+            "text/csv"
+        )
+    else:
+        st.warning("⚠️ אין נתוני מניות זמינים לחישוב תשואות")
+
+# טאב 5: קורלציות לפי תאריך
+with tab5:
+    st.markdown("""
+    <div style='direction: rtl; text-align: right;'>
+        <h2 style='color: #0066CC;'>⏱️ קורלציות לפי תאריך</h2>
+        <p>הצג איך הקורלציות משתנות לאורך זמן</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # בדיקה אם יש נתוני rolling correlations
+    if (hasattr(st.session_state, 'price_rolling_correlations') and 
+        st.session_state.price_rolling_correlations is not None):
+        
+        price_rolling = st.session_state.price_rolling_correlations
+        volume_rolling = st.session_state.volume_rolling_correlations
+        rolling_window = st.session_state.rolling_window
+        
+        st.success(f"✅ קורלציות גליליות חושבו עם חלון של {rolling_window} ימים")
+        
+        # בחירת זוג מניות
+        st.markdown("### בחר זוג מניות לצפייה")
+        
+        col1, col2 = st.columns(2)
+        
+        available_stocks = list(price_rolling.keys())
+        
+        with col1:
+            stock1 = st.selectbox(
+                "מניה 1",
+                options=available_stocks,
+                key="rolling_stock1"
+            )
+        
+        with col2:
+            stock2 = st.selectbox(
+                "מניה 2",
+                options=available_stocks,
+                key="rolling_stock2"
+            )
+        
+        if stock1 and stock2 and stock1 != stock2:
+            # חילוץ הקורלציות לאורך זמן
+            if stock2 in price_rolling[stock1].columns:
+                price_corr_series = price_rolling[stock1][stock2]
+                volume_corr_series = volume_rolling[stock1][stock2]
+                
+                # הצגה
+                st.markdown(f"### קורלציות {stock1} ↔ {stock2} לאורך זמן")
+                
+                # סטטיסטיקות
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    avg_price = price_corr_series.mean()
+                    st.metric("קורלציית מחיר ממוצעת", f"{avg_price:.3f}")
+                
+                with col2:
+                    avg_volume = volume_corr_series.mean()
+                    st.metric("קורלציית נפח ממוצעת", f"{avg_volume:.3f}")
+                
+                with col3:
+                    last_price = price_corr_series.iloc[-1]
+                    st.metric("קורלציית מחיר אחרונה", f"{last_price:.3f}")
+                
+                with col4:
+                    last_volume = volume_corr_series.iloc[-1]
+                    st.metric("קורלציית נפח אחרונה", f"{last_volume:.3f}")
+                
+                # גרף
+                fig = go.Figure()
+                
+                fig.add_trace(go.Scatter(
+                    x=price_corr_series.index,
+                    y=price_corr_series.values,
+                    mode='lines',
+                    name='קורלציית מחיר',
+                    line=dict(color='#0066CC', width=2)
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=volume_corr_series.index,
+                    y=volume_corr_series.values,
+                    mode='lines',
+                    name='קורלציית נפח',
+                    line=dict(color='#FF6B6B', width=2)
+                ))
+                
+                # קו אפס
+                fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+                
+                fig.update_layout(
+                    title=f"קורלציות {stock1} ↔ {stock2} לאורך זמן (חלון {rolling_window} ימים)",
+                    xaxis_title="תאריך",
+                    yaxis_title="קורלציה",
+                    height=600,
+                    hovermode='x unified',
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    )
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # טבלה
+                st.markdown("### טבלת נתונים")
+                
+                df_display = pd.DataFrame({
+                    'תאריך': price_corr_series.index,
+                    'קורלציית מחיר': price_corr_series.values,
+                    'קורלציית נפח': volume_corr_series.values
+                })
+                
+                df_display['קורלציית מחיר'] = df_display['קורלציית מחיר'].round(4)
+                df_display['קורלציית נפח'] = df_display['קורלציית נפח'].round(4)
+                
+                st.dataframe(df_display, use_container_width=True, height=400)
+                
+                # הורדה
+                csv = df_display.to_csv(index=False)
+                st.download_button(
+                    "📥 הורד נתונים (CSV)",
+                    csv,
+                    f"rolling_correlations_{stock1}_{stock2}_{datetime.now().strftime('%Y%m%d')}.csv",
+                    "text/csv"
+                )
+            else:
+                st.warning(f"⚠️ לא נמצאו נתוני קורלציה עבור {stock1} ↔ {stock2}")
+        
+        elif stock1 == stock2:
+            st.info("💡 בחר שתי מניות שונות")
+        
+        # אופציה נוספת: הצגת top correlations בתאריך מסוים
+        st.markdown("---")
+        st.markdown("### בחר תאריך לראות קורלציות גבוהות באותו יום")
+        
+        # בחירת תאריך
+        available_dates = sorted(list(price_rolling[available_stocks[0]].index))
+        
+        selected_date = st.selectbox(
+            "בחר תאריך",
+            options=available_dates,
+            index=len(available_dates) - 1,  # תאריך אחרון
+            format_func=lambda x: x.strftime('%Y-%m-%d')
+        )
+        
+        if selected_date:
+            st.markdown(f"### קורלציות גבוהות ב-{selected_date.strftime('%Y-%m-%d')}")
+            
+            # חילוץ כל הקורלציות לתאריך זה
+            correlations_on_date = []
+            
+            for stock_a in available_stocks:
+                for stock_b in available_stocks:
+                    if stock_a < stock_b:  # למנוע כפילויות
+                        if stock_b in price_rolling[stock_a].columns:
+                            price_corr = price_rolling[stock_a][stock_b].loc[selected_date]
+                            volume_corr = volume_rolling[stock_a][stock_b].loc[selected_date]
+                            
+                            # חישוב קורלציה משולבת
+                            if price_corr > 0 and volume_corr > 0:
+                                combined_corr = price_corr * volume_corr
+                            else:
+                                combined_corr = 0
+                            
+                            correlations_on_date.append({
+                                'מניה 1': stock_a,
+                                'מניה 2': stock_b,
+                                'קורלציית מחיר': price_corr,
+                                'קורלציית נפח': volume_corr,
+                                'קורלציה משולבת': combined_corr
+                            })
+            
+            # יצירת DataFrame
+            df_date = pd.DataFrame(correlations_on_date)
+            df_date = df_date.sort_values('קורלציה משולבת', ascending=False)
+            
+            # עיגול
+            df_date['קורלציית מחיר'] = df_date['קורלציית מחיר'].round(4)
+            df_date['קורלציית נפח'] = df_date['קורלציית נפח'].round(4)
+            df_date['קורלציה משולבת'] = df_date['קורלציה משולבת'].round(4)
+            
+            # סטטיסטיקות
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("סה\"כ זוגות", len(df_date))
+            
+            with col2:
+                avg = df_date['קורלציה משולבת'].mean()
+                st.metric("קורלציה משולבת ממוצעת", f"{avg:.3f}")
+            
+            with col3:
+                max_corr = df_date['קורלציה משולבת'].max()
+                st.metric("קורלציה משולבת מקסימלית", f"{max_corr:.3f}")
+            
+            # הצגת top 50
+            st.markdown("#### 50 הקורלציות הגבוהות ביותר")
+            st.dataframe(df_date.head(50), use_container_width=True, height=500)
+            
+            # גרף
+            fig = go.Figure()
+            top_20 = df_date.head(20)
+            top_20['זוג'] = top_20['מניה 1'] + ' ↔ ' + top_20['מניה 2']
+            
+            fig.add_trace(go.Bar(
+                x=top_20['זוג'],
+                y=top_20['קורלציה משולבת'],
+                marker_color='#0066CC'
+            ))
+            
+            fig.update_layout(
+                title=f"20 הקורלציות הגבוהות ביותר ב-{selected_date.strftime('%Y-%m-%d')}",
+                xaxis_title="זוג מניות",
+                yaxis_title="קורלציה משולבת",
+                height=500,
+                xaxis={'tickangle': -45}
             )
             
-            st.success("✅ הקובץ מוכן להורדה!")
+            st.plotly_chart(fig, use_container_width=True)
             
-        except Exception as e:
-            st.error(f"שגיאה בייצוא: {str(e)}")
-
-with col2:
-    csv = df_stats.to_csv()
-    st.download_button(
-        "📄 ייצא ל-CSV",
-        csv,
-        f"correlation_statistics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        "text/csv"
-    )
-
-with col3:
-    st.info("📊 ייצוא גרפים - בקרוב...")
-
+            # הורדה
+            csv = df_date.to_csv(index=False)
+            st.download_button(
+                "📥 הורד קורלציות לתאריך זה (CSV)",
+                csv,
+                f"correlations_{selected_date.strftime('%Y%m%d')}.csv",
+                "text/csv"
+            )
+    
+    else:
+        st.info("""
+        💡 **לא חושבו קורלציות לאורך זמן**
+        
+        כדי להשתמש בתכונה זו:
+        1. עבור לעמוד 'ניתוח'
+        2. סמן את האופציה "חשב קורלציות לאורך זמן"
+        3. בחר גודל חלון
+        4. הרץ את הניתוח
+        
+        זה יאפשר לך לראות איך הקורלציות משתנות לאורך זמן.
+        """)

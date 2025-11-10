@@ -201,7 +201,8 @@ class DataFetcher:
                           symbol: str,
                           start_date: str = "2012-01-01",
                           end_date: str = None,
-                          use_cache: bool = True) -> pd.DataFrame:
+                          use_cache: bool = True,
+                          force_download: bool = False) -> pd.DataFrame:
         """
         הורדת נתוני מניה בודדת
         
@@ -210,23 +211,23 @@ class DataFetcher:
             start_date: תאריך התחלה (ברירת מחדל: 2012-01-01)
             end_date: תאריך סיום (ברירת מחדל: היום)
             use_cache: האם להשתמש בקאש
+            force_download: האם לכפות הורדה מחדש (True = הורד בכל מקרה, False = השתמש בקאש אם קיים)
         """
         if end_date is None:
             end_date = datetime.now().strftime("%Y-%m-%d")
         
         cache_file = os.path.join(self.cache_dir, f"{symbol}_{start_date}_{end_date}.pkl")
         
-        # בדוק קאש
-        if use_cache and os.path.exists(cache_file):
-            # בדוק אם הקובץ עודכן היום
-            file_date = datetime.fromtimestamp(os.path.getmtime(cache_file))
-            if file_date.date() == datetime.now().date():
-                try:
-                    with open(cache_file, 'rb') as f:
-                        df = pickle.load(f)
-                    return df
-                except:
-                    pass
+        # בדוק קאש - אם לא כפינו הורדה ויש קאש, תמיד השתמש בו
+        if use_cache and not force_download and os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'rb') as f:
+                    df = pickle.load(f)
+                print(f"✅ {symbol}: נטען מקאש")
+                return df
+            except Exception as e:
+                print(f"⚠️ {symbol}: שגיאה בטעינה מקאש ({e}), מוריד מחדש...")
+                # אם נכשל, נוריד מחדש
         
         # הורדה מ-Yahoo Finance
         try:
@@ -266,6 +267,7 @@ class DataFetcher:
                                 start_date: str = "2012-01-01",
                                 end_date: str = None,
                                 use_cache: bool = True,
+                                force_download: bool = False,
                                 max_workers: int = 10) -> pd.DataFrame:
         """
         הורדת נתונים של מספר מניות
@@ -275,6 +277,9 @@ class DataFetcher:
         - Adj Close: מחיר סגירה מותאם (מותאם לפיצולי מניות ודיבידנדים)
         - Volume: נפח מסחר
         
+        Args:
+            force_download: אם True, יוריד מחדש גם אם יש קאש. אם False, ישתמש בקאש אם קיים.
+        
         Returns:
             DataFrame עם MultiIndex: (symbol, field) - Close, Adj Close ו-Volume
         """
@@ -283,6 +288,10 @@ class DataFetcher:
         
         print(f"מוריד נתונים עבור {len(symbols)} מניות...")
         print(f"תקופה: {start_date} עד {end_date}")
+        if use_cache and not force_download:
+            print("💾 משתמש בקאש - לא יוריד נתונים שכבר קיימים")
+        elif force_download:
+            print("🔄 כופה הורדה מחדש - מתעלם מקאש")
         
         all_data = {}
         failed_symbols = []
@@ -291,7 +300,7 @@ class DataFetcher:
             if (i + 1) % 50 == 0:
                 print(f"התקדמות: {i+1}/{len(symbols)}")
             
-            df = self.download_stock_data(symbol, start_date, end_date, use_cache)
+            df = self.download_stock_data(symbol, start_date, end_date, use_cache, force_download)
             
             if df is not None and not df.empty:
                 # בדוק אילו עמודות זמינות
@@ -425,26 +434,6 @@ class DataFetcher:
             end_date=today,
             use_cache=False
         )
-    
-    def get_reference_stock_data(self,
-                                symbol: str = "SPY",
-                                start_date: str = "2012-01-01",
-                                end_date: str = None) -> Dict[str, pd.Series]:
-        """
-        הורדת נתוני מניית ייחוס (ברירת מחדל: SPY - S&P 500 ETF)
-        
-        Returns:
-            Dict עם 'price' ו-'volume'
-        """
-        df = self.download_stock_data(symbol, start_date, end_date)
-        
-        if df is None:
-            return None
-        
-        return {
-            'price': df['Close'],
-            'volume': df['Volume']
-        }
     
     def clear_cache(self):
         """

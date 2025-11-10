@@ -80,49 +80,6 @@ class CorrelationEngine:
                     
         return pd.Series(correlations, index=series.index)
     
-    def calculate_sheet_correlations(self, 
-                                    stock_data: pd.DataFrame,
-                                    reference_price: pd.Series,
-                                    reference_volume: pd.Series) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        חישוב קורלציות עבור גיליונות "שער" ו"מחזור"
-        
-        Returns:
-            (price_corr_df, volume_corr_df)
-        """
-        price_correlations = {}
-        volume_correlations = {}
-        
-        for symbol in stock_data.columns.get_level_values(0).unique():
-            # קורלציית מחיר - משתמש בשדה שנבחר (Close או Adj Close)
-            if (symbol, self.price_field) not in stock_data.columns:
-                # אם השדה לא קיים, נסה Close
-                price_field = 'Close'
-            else:
-                price_field = self.price_field
-            
-            stock_prices = stock_data[(symbol, price_field)]
-            price_corr = self.calculate_rolling_correlation(
-                stock_prices, 
-                reference_price, 
-                self.block_length
-            )
-            price_correlations[symbol] = price_corr
-            
-            # קורלציית מחזור
-            stock_volumes = stock_data[(symbol, 'Volume')]
-            volume_corr = self.calculate_rolling_correlation(
-                stock_volumes,
-                reference_volume,
-                self.block_length
-            )
-            volume_correlations[symbol] = volume_corr
-        
-        price_df = pd.DataFrame(price_correlations)
-        volume_df = pd.DataFrame(volume_correlations)
-        
-        return price_df, volume_df
-    
     def combine_correlations(self,
                            price_corr: pd.DataFrame,
                            volume_corr: pd.DataFrame) -> pd.DataFrame:
@@ -244,83 +201,6 @@ class CorrelationEngine:
             }
         
         return stats
-    
-    def run_full_analysis(self,
-                         stock_data: pd.DataFrame,
-                         reference_price: pd.Series,
-                         reference_volume: pd.Series) -> Dict:
-        """
-        הרצה מלאה של כל הניתוח
-        
-        Returns:
-            Dict עם כל התוצאות:
-            - price_correlations
-            - volume_correlations
-            - combined_correlations
-            - volume_ratios
-            - statistics
-            - opportunities (למניות בודדות)
-        """
-        print("שלב 1: חישוב קורלציות שער ומחזור...")
-        price_corr, volume_corr = self.calculate_sheet_correlations(
-            stock_data, reference_price, reference_volume
-        )
-        
-        print("שלב 2: שילוב קורלציות...")
-        combined = self.combine_correlations(price_corr, volume_corr)
-        
-        print("שלב 3: חישוב יחסי מחזור...")
-        # צריך להפיק את נפחי המסחר
-        volumes = pd.DataFrame({
-            col: stock_data[(col, 'Volume')] 
-            for col in stock_data.columns.get_level_values(0).unique()
-        })
-        
-        volume_ratios = self.calculate_volume_ratio(volumes, combined)
-        
-        print("שלב 4: חישוב סטטיסטיקה...")
-        stats = self.calculate_statistics(volume_ratios)
-        
-        print("ניתוח הושלם!")
-        
-        return {
-            'price_correlations': price_corr,
-            'volume_correlations': volume_corr,
-            'combined_correlations': combined,
-            'volume_ratios': volume_ratios,
-            'volumes': volumes,
-            'statistics': stats
-        }
-    
-    def find_today_opportunities(self, results: Dict) -> List[Dict]:
-        """
-        מציאת ההזדמנויות להיום (היום האחרון בנתונים)
-        """
-        volume_ratios = results['volume_ratios']
-        combined_corr = results['combined_correlations']
-        
-        last_idx = volume_ratios.index[-1]
-        threshold_value = 1 + self.threshold
-        
-        opportunities = []
-        
-        for col in volume_ratios.columns:
-            ratio = volume_ratios[col].iloc[-1]
-            corr = combined_corr[col].iloc[-1]
-            
-            # בדוק אם זו הזדמנות
-            if ratio > threshold_value and corr >= self.significance:
-                opportunities.append({
-                    'symbol': col,
-                    'correlation': corr,
-                    'volume_ratio': ratio,
-                    'date': last_idx
-                })
-        
-        # מיון לפי correlation (הגבוה ביותר קודם)
-        opportunities.sort(key=lambda x: x['correlation'], reverse=True)
-        
-        return opportunities
     
     def validate_correlations(self, results: Dict) -> Dict:
         """
@@ -477,6 +357,62 @@ class CorrelationEngine:
         
         return avg_correlation
     
+    def calculate_rolling_correlation_over_time(self,
+                                               stock_data: pd.DataFrame,
+                                               field: str = 'Close',
+                                               window: int = 30) -> Dict:
+        """
+        חישוב קורלציות גליליות לאורך זמן - לכל תאריך
+        
+        Args:
+            stock_data: DataFrame עם MultiIndex (symbol, field)
+            field: השדה לחישוב קורלציה
+            window: גודל החלון לחישוב קורלציה
+        
+        Returns:
+            Dict: {stock1: DataFrame שבו עמודות הן המניות האחרות ושורות הן תאריכים}
+        """
+        # חילוץ כל המניות
+        symbols = stock_data.columns.get_level_values(0).unique().tolist()
+        
+        # יצירת DataFrame של השדה הנבחר
+        data_dict = {}
+        for symbol in symbols:
+            if (symbol, field) in stock_data.columns:
+                data_dict[symbol] = stock_data[(symbol, field)]
+            elif (symbol, 'Close') in stock_data.columns:
+                data_dict[symbol] = stock_data[(symbol, 'Close')]
+            else:
+                continue
+        
+        if not data_dict:
+            return {}
+        
+        data_df = pd.DataFrame(data_dict)
+        
+        # יצירת מבנה נתונים לאחסון קורלציות לאורך זמן
+        # לכל מניה נשמור DataFrame שבו העמודות הן מניות אחרות והשורות הן תאריכים
+        result = {}
+        
+        for stock1 in symbols:
+            if stock1 not in data_df.columns:
+                continue
+            
+            stock1_correlations = {}
+            
+            for stock2 in symbols:
+                if stock2 not in data_df.columns or stock1 == stock2:
+                    continue
+                
+                # חישוב rolling correlation בין stock1 ל-stock2
+                rolling_corr = data_df[stock1].rolling(window).corr(data_df[stock2])
+                stock1_correlations[stock2] = rolling_corr
+            
+            if stock1_correlations:
+                result[stock1] = pd.DataFrame(stock1_correlations)
+        
+        return result
+    
     def find_top_correlations(self,
                             correlation_matrix: pd.DataFrame,
                             top_n: int = 50) -> pd.DataFrame:
@@ -509,53 +445,63 @@ class CorrelationEngine:
         corr_df = corr_df.sort_values('קורלציה', ascending=False)
         
         return corr_df.head(top_n)
-
-
-def test_engine():
-    """
-    בדיקה בסיסית של המנוע
-    """
-    # יצירת נתונים דמה
-    dates = pd.date_range('2020-01-01', periods=100, freq='D')
     
-    stock1 = pd.Series(np.random.randn(100).cumsum() + 100, index=dates)
-    stock2 = pd.Series(np.random.randn(100).cumsum() + 50, index=dates)
-    reference = pd.Series(np.random.randn(100).cumsum() + 200, index=dates)
-    
-    # יצירת DataFrame מתוקן
-    stock_data = pd.DataFrame({
-        ('STOCK1', 'Close'): stock1,
-        ('STOCK1', 'Volume'): np.random.randint(1000000, 10000000, 100),
-        ('STOCK2', 'Close'): stock2,
-        ('STOCK2', 'Volume'): np.random.randint(1000000, 10000000, 100)
-    })
-    
-    ref_price = reference
-    ref_volume = pd.Series(np.random.randint(1000000, 10000000, 100), index=dates)
-    
-    # פרמטרים
-    params = {
-        'block_length': 15,
-        'significance': 0.7,
-        'calc_mode': 3,
-        'ma_length': 10,
-        'threshold': 0.01
-    }
-    
-    # הרצה
-    engine = CorrelationEngine(params)
-    results = engine.run_full_analysis(stock_data, ref_price, ref_volume)
-    
-    print("\n=== תוצאות בדיקה ===")
-    print(f"מספר ימים: {len(results['combined_correlations'])}")
-    print(f"מספר מניות: {len(results['statistics'])}")
-    
-    for symbol, stat in results['statistics'].items():
-        print(f"\n{symbol}:")
-        print(f"  UP: {stat['UP']} ({stat['UP_PCT']:.1%})")
-        print(f"  DOWN: {stat['DOWN']} ({stat['DOWN_PCT']:.1%})")
-        print(f"  TOTAL: {stat['TOTAL']}")
+    def calculate_returns(self, stock_data: pd.DataFrame) -> Dict:
+        """
+        חישוב תשואות למניות
+        
+        Args:
+            stock_data: DataFrame עם MultiIndex (symbol, field)
+        
+        Returns:
+            Dict עם:
+            - daily_returns: DataFrame של תשואות יומיות (%)
+            - cumulative_returns: DataFrame של תשואות מצטברות (%)
+            - annualized_returns: Series של תשואות שנתיות ממוצעות (%)
+        """
+        symbols = stock_data.columns.get_level_values(0).unique()
+        
+        results = {
+            'daily_returns': {},
+            'cumulative_returns': {},
+            'annualized_returns': {}
+        }
+        
+        for symbol in symbols:
+            # קבלת מחירים - השתמש ב-price_field שהוגדר
+            if (symbol, self.price_field) in stock_data.columns:
+                prices = stock_data[(symbol, self.price_field)]
+            elif (symbol, 'Adj Close') in stock_data.columns:
+                prices = stock_data[(symbol, 'Adj Close')]
+            elif (symbol, 'Close') in stock_data.columns:
+                prices = stock_data[(symbol, 'Close')]
+            else:
+                continue
+            
+            # תשואה יומית: (price_today - price_yesterday) / price_yesterday * 100
+            daily_ret = prices.pct_change() * 100
+            results['daily_returns'][symbol] = daily_ret
+            
+            # תשואה מצטברת: ((price_today - price_first) / price_first) * 100
+            first_price = prices.iloc[0]
+            cumulative_ret = ((prices - first_price) / first_price) * 100
+            results['cumulative_returns'][symbol] = cumulative_ret
+            
+            # תשואה שנתית ממוצעת
+            num_years = len(prices) / 252  # 252 ימי מסחר בשנה
+            if num_years > 0 and not pd.isna(cumulative_ret.iloc[-1]):
+                total_return = cumulative_ret.iloc[-1]
+                annual_ret = total_return / num_years
+                results['annualized_returns'][symbol] = annual_ret
+            else:
+                results['annualized_returns'][symbol] = 0
+        
+        return {
+            'daily_returns': pd.DataFrame(results['daily_returns']),
+            'cumulative_returns': pd.DataFrame(results['cumulative_returns']),
+            'annualized_returns': pd.Series(results['annualized_returns'])
+        }
 
 
 if __name__ == '__main__':
-    test_engine()
+    print("correlation_engine.py - מנוע חישוב קורלציות")

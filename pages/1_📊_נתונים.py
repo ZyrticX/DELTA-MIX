@@ -320,6 +320,19 @@ if cached_stocks:
                     display_df = df.copy()
                     display_df.index.name = 'תאריך'
                     
+                    # וידוא שכל העמודות הנדרשות מוצגות
+                    required_columns = ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
+                    
+                    # סידור עמודות - רק אלה שקיימות
+                    column_order = [col for col in required_columns if col in display_df.columns]
+                    
+                    if len(column_order) < len(required_columns):
+                        missing = [c for c in required_columns if c not in column_order]
+                        st.warning(f"⚠️ עמודות חסרות: {', '.join(missing)}")
+                    
+                    # סידור העמודות
+                    display_df = display_df[column_order]
+                    
                     # עיגול מספרים
                     numeric_cols = display_df.select_dtypes(include=['float64', 'int64']).columns
                     display_df[numeric_cols] = display_df[numeric_cols].round(2)
@@ -432,6 +445,98 @@ if cached_stocks:
                 st.error(f"❌ שגיאה בטעינת נתוני {selected_stock}: {str(e)}")
         else:
             st.warning(f"⚠️ לא נמצאו קבצים עבור {selected_stock}")
+
+st.markdown("---")
+
+# סקציה חדשה: טבלת כל המניות
+st.markdown("""
+<div style='direction: rtl; text-align: right;'>
+    <h2 style='color: #0066CC; margin-top: 2rem; margin-bottom: 1rem;'>📋 טבלת כל המניות</h2>
+</div>
+""", unsafe_allow_html=True)
+
+if st.session_state.data_loaded and st.session_state.stock_data is not None:
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        selected_symbols_table = st.multiselect(
+            "בחר מניות להצגה",
+            options=st.session_state.symbols,
+            default=st.session_state.symbols[:10] if len(st.session_state.symbols) > 10 else st.session_state.symbols,
+            help="בחר עד 20 מניות להצגה בטבלה",
+            key="selected_symbols_table"
+        )
+    
+    with col2:
+        try:
+            date_range = st.date_input(
+                "טווח תאריכים",
+                value=(st.session_state.stock_data.index.min().date(), 
+                       st.session_state.stock_data.index.max().date()),
+                key="date_range_table"
+            )
+        except:
+            date_range = None
+    
+    if selected_symbols_table and len(selected_symbols_table) > 0:
+        # בניית טבלה משולבת
+        all_data = []
+        for symbol in selected_symbols_table[:20]:  # הגבל ל-20 מניות
+            # טען נתונים
+            cache_dir = "data_cache"
+            if os.path.exists(cache_dir):
+                symbol_files = [f for f in os.listdir(cache_dir) 
+                              if f.startswith(f"{symbol}_") and f.endswith('.pkl')]
+                
+                if symbol_files:
+                    # מיון לפי תאריך שינוי - הקובץ האחרון
+                    symbol_files.sort(key=lambda f: os.path.getmtime(
+                        os.path.join(cache_dir, f)), reverse=True)
+                    
+                    with open(os.path.join(cache_dir, symbol_files[0]), 'rb') as f:
+                        df_stock = pickle.load(f)
+                    
+                    # הוסף עמודת Symbol
+                    df_stock['Symbol'] = symbol
+                    all_data.append(df_stock)
+        
+        if all_data:
+            combined = pd.concat(all_data)
+            combined = combined.sort_index(ascending=False)
+            
+            # סינון לפי תאריך
+            if date_range and len(date_range) == 2:
+                mask = (combined.index >= pd.to_datetime(date_range[0])) & \
+                       (combined.index <= pd.to_datetime(date_range[1]))
+                combined = combined[mask]
+            
+            st.success(f"✅ מציג {len(combined):,} שורות עבור {len(selected_symbols_table[:20])} מניות")
+            
+            # סידור עמודות
+            cols = ['Symbol', 'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
+            available = [c for c in cols if c in combined.columns]
+            combined_display = combined[available].copy()
+            
+            # עיגול
+            numeric_cols = combined_display.select_dtypes(include=['float64', 'int64']).columns
+            combined_display[numeric_cols] = combined_display[numeric_cols].round(2)
+            
+            st.dataframe(combined_display, use_container_width=True, height=500)
+            
+            # הורדה
+            csv = combined.to_csv()
+            st.download_button(
+                "📥 הורד CSV",
+                csv,
+                f"all_stocks_{datetime.now().strftime('%Y%m%d')}.csv",
+                "text/csv"
+            )
+        else:
+            st.warning("⚠️ לא נמצאו נתונים עבור המניות הנבחרות")
+    else:
+        st.info("📊 בחר מניות להצגה")
+else:
+    st.info("📊 יש לטעון נתונים תחילה")
 
 st.markdown("---")
 
