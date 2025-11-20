@@ -4,6 +4,9 @@ __pycache__/
 *$py.class
 *.so
 .Python
+env/
+venv/
+ENV/
 build/
 develop-eggs/
 dist/
@@ -20,11 +23,18 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual Environment
-venv/
-env/
-ENV/
-.venv
+# Environment variables
+.env
+.env.local
+.env*.local
+
+# Data cache
+data_cache/*.pkl
+data_cache/*.csv
+
+# Logs
+*.log
+logs/
 
 # IDE
 .vscode/
@@ -33,40 +43,20 @@ ENV/
 *.swo
 *~
 
-# Streamlit
-.streamlit/secrets.toml
-
-# Data & Cache
-data_cache/
-daily_results/
-*.pkl
-*.csv
-*.xlsx
-*.json
-!config.json.example
-
-# Logs
-*.log
-logs/
-
 # OS
 .DS_Store
 Thumbs.db
-desktop.ini
 
-# Environment variables
-.env
-.env.local
+# Next.js
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+frontend/.env.local
 
-# Docker
-.dockerignore
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
 
-# Temporary files
-tmp/
-temp/
-*.tmp
-
-# Backup files
-*.bak
-*.backup
-
+# Supabase
+.supabase/
